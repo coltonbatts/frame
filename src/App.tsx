@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnalysisPanel } from './components/analysis/AnalysisPanel';
 import { TitleBar } from './components/layout/TitleBar';
 import { ProjectBin } from './components/project-bin/ProjectBin';
@@ -14,29 +14,7 @@ import {
 } from './lib/media';
 import { useAppStore, useSelectedFile } from './stores/appStore';
 
-// Direct window drag handler — supplements the auto-injected drag.js
-function setupWindowDrag(): void {
-  const tauri = (window as unknown as { __TAURI_INTERNALS__?: { invoke: (cmd: string) => Promise<void> } }).__TAURI_INTERNALS__;
-  if (!tauri) return;
-
-  document.addEventListener('mousedown', (e: MouseEvent) => {
-    const target = e.target as HTMLElement;
-    const attr = target.getAttribute('data-tauri-drag-region');
-    if (attr === null || attr === 'false') return;
-    if (e.button !== 0) return;
-
-    e.preventDefault();
-    e.stopImmediatePropagation();
-
-    tauri.invoke('plugin:window|start_dragging').catch(() => {
-      // no-op if called on non-drag element
-    });
-  }, true);
-}
 import type { ProjectFile } from './types/models';
-
-// Setup window drag immediately when the module loads (runs once)
-setupWindowDrag();
 
 const ACCEPTED_UPLOADS =
   'video/*,audio/*,.mov,.m4v,.mp4,.mkv,.webm,.avi,.mxf,.mpg,.mpeg,.mp3,.wav,.flac,.m4a,.aac,.aiff,.aif,.alac,.ogg,.oga';
@@ -108,6 +86,38 @@ export default function App(): JSX.Element {
     return () => window.clearInterval(timer);
   }, [tickQueue]);
 
+
+  const handleNativeImport = useCallback(async (): Promise<void> => {
+    try {
+      const paths = await openNativeFileDialog();
+      if (paths.length === 0) return;
+
+      setImportProgress({ completed: 0, currentName: 'Opening files...', total: paths.length });
+      const imported: ProjectFile[] = [];
+
+      for (let i = 0; i < paths.length; i++) {
+        setImportProgress({
+          completed: i,
+          currentName: paths[i].split('/').pop() ?? paths[i],
+          total: paths.length,
+        });
+        try {
+          const file = await createProjectFileFromPath(paths[i], i);
+          imported.push(file);
+        } catch (err) {
+          console.error(`Failed to import ${paths[i]}:`, err);
+        }
+        if (i < paths.length - 1) await yieldToBrowser();
+      }
+
+      if (imported.length > 0) addImportedFiles(imported);
+    } catch (err) {
+      console.error('Native import failed:', err);
+    } finally {
+      setImportProgress(null);
+    }
+  }, [addImportedFiles]);
+
   useEffect(() => {
     setRightCollapsed(windowWidth < 1280);
     setLeftCollapsed(windowWidth < 1024);
@@ -162,7 +172,7 @@ export default function App(): JSX.Element {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [duration, removeSelectedFile, selectedFile?.fps, toggleSettings]);
+  }, [duration, removeSelectedFile, selectedFile?.fps, toggleSettings, handleNativeImport]);
 
   const importFiles = async (fileList: File[]): Promise<void> => {
     if (fileList.length === 0) {
@@ -209,36 +219,6 @@ export default function App(): JSX.Element {
     }
   };
 
-  const handleNativeImport = async (): Promise<void> => {
-    try {
-      const paths = await openNativeFileDialog();
-      if (paths.length === 0) return;
-
-      setImportProgress({ completed: 0, currentName: 'Opening files...', total: paths.length });
-      const imported: ProjectFile[] = [];
-
-      for (let i = 0; i < paths.length; i++) {
-        setImportProgress({
-          completed: i,
-          currentName: paths[i].split('/').pop() ?? paths[i],
-          total: paths.length,
-        });
-        try {
-          const file = await createProjectFileFromPath(paths[i], i);
-          imported.push(file);
-        } catch (err) {
-          console.error(`Failed to import ${paths[i]}:`, err);
-        }
-        if (i < paths.length - 1) await yieldToBrowser();
-      }
-
-      if (imported.length > 0) addImportedFiles(imported);
-    } catch (err) {
-      console.error('Native import failed:', err);
-    } finally {
-      setImportProgress(null);
-    }
-  };
 
   const handleDragEnter = (event: React.DragEvent<HTMLDivElement>): void => {
     if (!isFileDrag(event)) {
