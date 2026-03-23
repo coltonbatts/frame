@@ -210,19 +210,8 @@ button {
   min-height: 1px;
 }
 
-[data-tauri-drag-region] {
-  -webkit-app-region: drag;
-  app-region: drag;
-}
-
 [data-tauri-drag-region='no-drag'] {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
-}
-
-.titlebar button {
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+  /* no-drag handled by JS event stopPropagation — no CSS needed */
 }
 
 .titlebar-copy {

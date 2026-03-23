@@ -13,7 +13,30 @@ import {
   openNativeFileDialog,
 } from './lib/media';
 import { useAppStore, useSelectedFile } from './stores/appStore';
+
+// Direct window drag handler — supplements the auto-injected drag.js
+function setupWindowDrag(): void {
+  const tauri = (window as unknown as { __TAURI_INTERNALS__?: { invoke: (cmd: string) => Promise<void> } }).__TAURI_INTERNALS__;
+  if (!tauri) return;
+
+  document.addEventListener('mousedown', (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const attr = target.getAttribute('data-tauri-drag-region');
+    if (attr === null || attr === 'false') return;
+    if (e.button !== 0) return;
+
+    e.preventDefault();
+    e.stopImmediatePropagation();
+
+    tauri.invoke('plugin:window|start_dragging').catch(() => {
+      // no-op if called on non-drag element
+    });
+  }, true);
+}
 import type { ProjectFile } from './types/models';
+
+// Setup window drag immediately when the module loads (runs once)
+setupWindowDrag();
 
 const ACCEPTED_UPLOADS =
   'video/*,audio/*,.mov,.m4v,.mp4,.mkv,.webm,.avi,.mxf,.mpg,.mpeg,.mp3,.wav,.flac,.m4a,.aac,.aiff,.aif,.alac,.ogg,.oga';
