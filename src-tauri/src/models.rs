@@ -1,0 +1,83 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileMetadata {
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    pub duration: f64,
+    pub width: u32,
+    pub height: u32,
+    pub codec: String,
+    pub fps: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaInfo {
+    pub duration: f64,
+    pub width: u32,
+    pub height: u32,
+    pub codec: String,
+    pub fps: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Frame {
+    pub timestamp: f64,
+    pub preview_color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Scene {
+    pub index: usize,
+    pub start_time: f64,
+    pub end_time: f64,
+    pub confidence: f64,
+    pub thumbnail_color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptSegment {
+    pub id: String,
+    pub start_time: f64,
+    pub end_time: f64,
+    pub speaker: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Transcript {
+    pub language: String,
+    pub segments: Vec<TranscriptSegment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportPreset {
+    pub id: String,
+    pub name: String,
+    pub container: String,
+    pub video_codec: String,
+    pub audio_codec: String,
+    pub bitrate: Option<String>,
+    pub resolution: Option<String>,
+    pub fps: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueItem {
+    pub id: String,
+    pub file_id: String,
+    pub preset: ExportPreset,
+    pub progress: f64,
+    pub state: String,
+    pub output_path: Option<String>,
+    pub error: Option<String>,
+}
