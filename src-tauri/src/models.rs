@@ -30,6 +30,20 @@ pub struct Frame {
     pub preview_color: String,
 }
 
+/// A thumbnail extracted from a video at a specific timestamp.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Thumbnail {
+    /// Absolute path to the thumbnail JPEG file.
+    pub path: String,
+    /// Width in pixels.
+    pub width: u32,
+    /// Height in pixels.
+    pub height: u32,
+    /// Timestamp in seconds where the frame was extracted.
+    pub timestamp: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Scene {

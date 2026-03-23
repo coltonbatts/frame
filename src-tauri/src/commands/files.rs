@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::Command;
 use serde_json::Value;
 
-use crate::models::{FileMetadata, Frame, MediaInfo};
+use crate::models::{FileMetadata, Frame, MediaInfo, Thumbnail};
 
 fn file_name(path: &str) -> String {
     Path::new(path)
@@ -158,4 +158,75 @@ pub async fn open_file_dialog() -> Result<Vec<String>, String> {
 pub async fn read_video_file(path: String) -> Result<Vec<u8>, String> {
     std::fs::read(&path)
         .map_err(|e| format!("failed to read file {}: {}", path, e))
+}
+
+/// Extract a thumbnail JPEG from a video at a given timestamp.
+/// Returns the path to the temp JPEG file.
+#[tauri::command]
+pub async fn extract_thumbnail(path: String, time: f64) -> Result<Thumbnail, String> {
+    // Get video dimensions first
+    let meta = get_file_metadata(path.clone()).await?;
+
+    let tmp = std::env::temp_dir();
+    let id = std::process::id();
+    let out_path = tmp.join(format!("thumb_{}_{:.3}.jpg", id, time));
+
+    let output = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-ss", &format!("{:.3}", time),
+            "-i", &path,
+            "-vframes", "1",
+            "-vf", "scale=320:-1",
+            "-q:v", "3",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .map_err(|e| format!("ffmpeg thumbnail failed: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("ffmpeg failed: {}", stderr));
+    }
+
+    Ok(Thumbnail {
+        path: out_path.to_string_lossy().to_string(),
+        width: meta.width.min(320),
+        height: meta.height.saturating_mul(320) / meta.width.max(1),
+        timestamp: time,
+    })
+}
+
+/// Open macOS Finder and reveal the file at the given path.
+#[tauri::command]
+pub fn show_in_finder(path: String) -> Result<(), String> {
+    Command::new("open")
+        .args(["-R", &path]) // -R = reveal in Finder
+        .output()
+        .map_err(|e| format!("open command failed: {}", e))?;
+
+    // Also try using FinderServices for more reliable reveal
+    let output = Command::new("osascript")
+        .args([
+            "-e",
+            &format!(
+                "tell application \"Finder\" to reveal POSIX file \"{}\"",
+                path.replace('"', "\\\"")
+            ),
+        ])
+        .output();
+
+    if let Ok(out) = output {
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            eprintln!("Finder reveal warning: {}", stderr);
+        }
+    }
+
+    // Activate Finder so the window comes to front
+    let _ = Command::new("osascript")
+        .args(["-e", "tell application \"Finder\" to activate"])
+        .output();
+
+    Ok(())
 }

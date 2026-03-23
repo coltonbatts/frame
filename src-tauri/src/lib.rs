@@ -13,6 +13,8 @@ pub fn run() {
             commands::files::extract_frame,
             commands::files::probe_file,
             commands::files::read_video_file,
+            commands::files::extract_thumbnail,
+            commands::files::show_in_finder,
             commands::ffmpeg::run_ffmpeg,
             commands::scenes::detect_scenes,
             commands::whisper::transcribe,
