@@ -5,6 +5,9 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:event:default",
+    "core:event:allow-emit",
+    "core:event:allow-listen",
     "core:window:allow-close",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
@@ -14,6 +17,8 @@
     "fs:default",
     "fs:allow-read-file",
     "fs:allow-read-dir",
+    "fs:allow-write-file",
+    "shot-list:default",
     {
       "identifier": "fs:scope",
       "allow": [

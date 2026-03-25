@@ -24,6 +24,7 @@ export interface Scene {
   endTime: number;
   confidence: number;
   thumbnailColor: string;
+  thumbnailPath?: string;
 }
 
 export interface TranscriptSegment {
@@ -42,6 +43,7 @@ export interface AnalysisResult {
   language: string;
   audioWaveform: number[];
   processedAt: string;
+  warnings: string[];
 }
 
 export interface ProjectFile {
@@ -49,6 +51,7 @@ export interface ProjectFile {
   folder: ProjectFolder;
   name: string;
   path: string;
+  localPath?: string;
   size: number;
   duration: number;
   width: number;
@@ -62,6 +65,7 @@ export interface ProjectFile {
   analysis?: AnalysisResult;
   sourceUrl?: string;
   outputPath?: string;
+  errorMessage?: string;
 }
 
 export interface ExportPreset {
@@ -84,4 +88,22 @@ export interface QueueItem {
   eta: string;
   outputPath?: string;
   error?: string;
+}
+
+export interface ShotItem {
+  shotNumber: number;
+  timestampSeconds: number;
+  timestampReadable: string;
+  sceneLabel: string;
+  thumbnailName: string;
+  thumbnailPath: string;
+}
+
+export interface ShotListState {
+  videoPath: string;
+  sidecarPath: string;
+  outputDir: string;
+  manifestJsonPath: string;
+  manifestCsvPath: string;
+  shots: ShotItem[];
 }

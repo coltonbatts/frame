@@ -1,4 +1,7 @@
-use crate::models::QueueItem;
+use tauri::AppHandle;
+
+use crate::commands::ffmpeg::run_ffmpeg;
+use crate::models::{ExportJob, QueueItem};
 
 #[tauri::command]
 pub async fn add_to_queue(item: QueueItem) -> Result<String, String> {
@@ -6,8 +9,8 @@ pub async fn add_to_queue(item: QueueItem) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn process_queue() -> Result<(), String> {
-    Ok(())
+pub async fn process_queue(app: AppHandle, job: ExportJob) -> Result<String, String> {
+    run_ffmpeg(app, job).await
 }
 
 #[tauri::command]

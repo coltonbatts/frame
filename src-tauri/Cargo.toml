@@ -19,3 +19,4 @@ tauri = { version = "2.10.3", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 dirs = "5"
+zip = { version = "2", default-features = false, features = ["deflate"] }

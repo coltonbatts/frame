@@ -1,13 +1,14 @@
 mod commands;
 mod models;
-
-use tauri_plugin_dialog::DialogExt;
+mod plugins;
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(plugins::shot_list::init())
         .invoke_handler(tauri::generate_handler![
+            commands::analysis::analyze_media,
             commands::files::open_file_dialog,
             commands::files::get_file_metadata,
             commands::files::extract_frame,

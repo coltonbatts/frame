@@ -4,6 +4,17 @@ use serde_json::Value;
 
 use crate::models::{FileMetadata, Frame, MediaInfo, Thumbnail};
 
+pub(crate) struct MediaProbe {
+    pub duration: f64,
+    pub size: u64,
+    pub width: u32,
+    pub height: u32,
+    pub codec: String,
+    pub fps: f64,
+    pub has_video: bool,
+    pub has_audio: bool,
+}
+
 fn file_name(path: &str) -> String {
     Path::new(path)
         .file_name()
@@ -15,13 +26,28 @@ fn file_name(path: &str) -> String {
 /// Probe a video file with ffprobe and return real metadata.
 #[tauri::command]
 pub async fn get_file_metadata(path: String) -> Result<FileMetadata, String> {
+    let probe = probe_media(&path)?;
+
+    Ok(FileMetadata {
+        path: path.clone(),
+        name: file_name(&path),
+        size: probe.size,
+        duration: probe.duration,
+        width: probe.width,
+        height: probe.height,
+        codec: probe.codec,
+        fps: probe.fps,
+    })
+}
+
+pub(crate) fn probe_media(path: &str) -> Result<MediaProbe, String> {
     let output = Command::new("ffprobe")
         .args([
             "-v", "quiet",
             "-print_format", "json",
             "-show_format",
             "-show_streams",
-            &path,
+            path,
         ])
         .output()
         .map_err(|e| format!("failed to run ffprobe: {}", e))?;
@@ -40,10 +66,12 @@ pub async fn get_file_metadata(path: String) -> Result<FileMetadata, String> {
         .and_then(|v| v.as_array())
         .ok_or("no streams in ffprobe output")?;
 
-    // Find video stream
     let video_stream = streams.iter()
-        .find(|s| s.get("codec_type").and_then(|v| v.as_str()) == Some("video"))
-        .ok_or("no video stream found")?;
+        .find(|stream| stream.get("codec_type").and_then(|v| v.as_str()) == Some("video"));
+    let audio_stream = streams.iter()
+        .find(|stream| stream.get("codec_type").and_then(|v| v.as_str()) == Some("audio"));
+    let primary_stream = video_stream.or(audio_stream)
+        .ok_or("no audio or video stream found")?;
 
     let duration = format.get("duration")
         .and_then(|v| v.as_str())
@@ -55,34 +83,36 @@ pub async fn get_file_metadata(path: String) -> Result<FileMetadata, String> {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0);
 
-    let width = video_stream.get("width")
+    let width = video_stream
+        .and_then(|stream| stream.get("width"))
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as u32;
 
-    let height = video_stream.get("height")
+    let height = video_stream
+        .and_then(|stream| stream.get("height"))
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as u32;
 
-    let codec = video_stream.get("codec_name")
+    let codec = primary_stream.get("codec_name")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_uppercase();
 
-    // FPS as rational (e.g., "30000/1001" for 29.97)
-    let fps_str = video_stream.get("r_frame_rate")
+    let fps = video_stream
+        .and_then(|stream| stream.get("r_frame_rate"))
         .and_then(|v| v.as_str())
-        .unwrap_or("24/1");
-    let fps = parse_fps(fps_str);
+        .map(parse_fps)
+        .unwrap_or(0.0);
 
-    Ok(FileMetadata {
-        path: path.clone(),
-        name: file_name(&path),
-        size,
+    Ok(MediaProbe {
         duration,
+        size,
         width,
         height,
         codec,
         fps,
+        has_video: video_stream.is_some(),
+        has_audio: audio_stream.is_some(),
     })
 }
 
@@ -164,8 +194,11 @@ pub async fn read_video_file(path: String) -> Result<Vec<u8>, String> {
 /// Returns the path to the temp JPEG file.
 #[tauri::command]
 pub async fn extract_thumbnail(path: String, time: f64) -> Result<Thumbnail, String> {
-    // Get video dimensions first
-    let meta = get_file_metadata(path.clone()).await?;
+    let meta = probe_media(&path)?;
+
+    if !meta.has_video {
+        return Err("thumbnail extraction requires a video stream".to_string());
+    }
 
     let tmp = std::env::temp_dir();
     let id = std::process::id();

@@ -1,8 +1,8 @@
 import { open } from '@tauri-apps/plugin-dialog';
-import { readFile } from '@tauri-apps/plugin-fs';
+import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
+import { join, tempDir } from '@tauri-apps/api/path';
 import type { ProjectFile } from '../types/models';
-import { createAnalysisSeed } from '../data/mock';
 
 const VIDEO_EXTENSIONS = new Set([
   'avi', 'm4v', 'mkv', 'mov', 'mp4',
@@ -38,6 +38,37 @@ interface FileMetadata {
   height: number;
   codec: string;
   fps: number;
+}
+
+type TauriFile = File & { path?: string };
+
+function getLocalPath(file: File): string | undefined {
+  const tauriPath = (file as TauriFile).path;
+  return typeof tauriPath === 'string' && tauriPath.length > 0 ? tauriPath : undefined;
+}
+
+function colorFromName(name: string): string {
+  const seed = Array.from(name).reduce(
+    (total, character, index) => total + character.charCodeAt(0) * (index + 11),
+    0,
+  );
+
+  const hue = seed % 360;
+  return `hsl(${hue} 36% 38%)`;
+}
+
+function createTempImportName(name: string, index: number): string {
+  const safeName = name.replace(/[\\/]/g, '_');
+  const nonce = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`;
+  return `frame-import-${index}-${nonce}-${safeName}`;
+}
+
+async function writeUploadToTempPath(file: File, index: number): Promise<string> {
+  const root = await tempDir();
+  const path = await join(root, createTempImportName(file.name, index));
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  await writeFile(path, bytes);
+  return path;
 }
 
 /**
@@ -95,13 +126,12 @@ export async function createProjectFileFromPath(
     };
   }
 
-  const seed = createAnalysisSeed(metadata.name, metadata.duration || 240);
-
   return {
     id: `local-${metadata.name}-${Date.now()}-${index}`,
     folder: 'raw',
     name: metadata.name,
     path: metadata.path,
+    localPath: metadata.path,
     size: metadata.size,
     duration: metadata.duration,
     width: metadata.width,
@@ -109,9 +139,8 @@ export async function createProjectFileFromPath(
     codec: metadata.codec,
     fps: metadata.fps,
     state: 'idle',
-    thumbnailColor: seed.thumbnailColor,
-    tags: seed.tags,
-    analysis: seed.analysis,
+    thumbnailColor: colorFromName(metadata.name),
+    tags: [],
     sourceUrl,
   };
 }
@@ -124,15 +153,31 @@ export async function createProjectFileFromUpload(
   file: File,
   index: number,
 ): Promise<ProjectFile> {
+  const localPath = getLocalPath(file);
   const ext = getFileExtension(file.name);
   const isMedia = isPreviewableMedia(file.name, file.type);
   const sourceUrl = isMedia ? URL.createObjectURL(file) : undefined;
+  const resolvedLocalPath = localPath ?? (isMedia ? await writeUploadToTempPath(file, index) : undefined);
 
-  let duration = 0;
-  let width = 0;
-  let height = 0;
+  let metadata: FileMetadata | undefined;
 
-  if (sourceUrl && (file.type.startsWith('video/') || file.type.startsWith('audio/'))) {
+  if (resolvedLocalPath) {
+    try {
+      metadata = await invoke<FileMetadata>('get_file_metadata', { path: resolvedLocalPath });
+    } catch {
+      metadata = undefined;
+    }
+  }
+
+  let duration = metadata?.duration ?? 0;
+  let width = metadata?.width ?? 0;
+  let height = metadata?.height ?? 0;
+
+  if (
+    !metadata &&
+    sourceUrl &&
+    (file.type.startsWith('video/') || file.type.startsWith('audio/'))
+  ) {
     const media = document.createElement(file.type.startsWith('audio/') ? 'audio' : 'video');
     media.preload = 'metadata';
     media.src = sourceUrl;
@@ -157,23 +202,21 @@ export async function createProjectFileFromUpload(
     media.load();
   }
 
-  const seed = createAnalysisSeed(file.name, duration || 240);
-
   return {
     id: `upload-${file.name}-${file.lastModified}-${index}`,
     folder: 'raw',
     name: file.name,
-    path: file.name,
-    size: file.size,
+    path: resolvedLocalPath ?? file.name,
+    localPath: resolvedLocalPath,
+    size: metadata?.size ?? file.size,
     duration,
     width,
     height,
-    codec: ext.toUpperCase(),
-    fps: 24,
+    codec: metadata?.codec ?? ext.toUpperCase(),
+    fps: metadata?.fps ?? 24,
     state: 'idle',
-    thumbnailColor: seed.thumbnailColor,
-    tags: seed.tags,
-    analysis: seed.analysis,
+    thumbnailColor: colorFromName(file.name),
+    tags: [],
     sourceUrl,
   };
 }

@@ -1,9 +1,10 @@
+import { convertFileSrc } from '@tauri-apps/api/core';
 import {
-  ChevronDown,
-  ChevronRight,
-  Languages,
-  ScanLine,
-  SlidersHorizontal,
+  ChevronDown as ChevronDownIcon,
+  ChevronRight as ChevronRightIcon,
+  Languages as LanguagesIcon,
+  ScanLine as ScanLineIcon,
+  SlidersHorizontal as SlidersHorizontalIcon,
 } from 'lucide-react';
 import { useState } from 'react';
 import { formatSmpte } from '../../lib/format';
@@ -26,6 +27,7 @@ interface AnalysisPanelProps {
   onAddTag: (tag: string) => void;
   onRemoveTag: (tag: string) => void;
   onTranscriptFormatChange: (format: TranscriptExportFormat) => void;
+  onProcess: () => void | Promise<void>;
 }
 
 function Section({
@@ -48,7 +50,7 @@ function Section({
           {icon}
           {title}
         </span>
-        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        {open ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
       </button>
       {open && <div className="analysis-section-body">{children}</div>}
     </section>
@@ -68,9 +70,16 @@ export function AnalysisPanel({
   onAddTag,
   onRemoveTag,
   onTranscriptFormatChange,
+  onProcess,
 }: AnalysisPanelProps): JSX.Element {
   const [draftTag, setDraftTag] = useState('');
   const analysis = file?.analysis;
+  const canProcess = Boolean(
+    file &&
+      file.folder === 'raw' &&
+      !['analyzing', 'queued', 'processing'].includes(file.state),
+  );
+  const processLabel = file?.state === 'analyzing' ? 'Processing...' : 'Process';
 
   return (
     <aside className={`panel panel-analysis ${collapsed ? 'panel-collapsed' : ''}`}>
@@ -81,13 +90,13 @@ export function AnalysisPanel({
         </div>
         <div className="panel-header-actions">
           <button className="toolbar-icon-button" type="button">
-            <ScanLine size={14} />
+            <ScanLineIcon size={14} />
           </button>
           <button className="toolbar-icon-button" type="button">
-            <SlidersHorizontal size={14} />
+            <SlidersHorizontalIcon size={14} />
           </button>
           <button className="toolbar-icon-button" type="button" onClick={onToggleCollapsed}>
-            {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+            {collapsed ? <ChevronRightIcon size={14} /> : <ChevronDownIcon size={14} />}
           </button>
         </div>
       </div>
@@ -95,8 +104,13 @@ export function AnalysisPanel({
       {!collapsed && (
         <>
           <div className="analysis-toolbar">
-            <button className="toolbar-button toolbar-button-primary" type="button">
-              Process
+            <button
+              className="toolbar-button toolbar-button-primary"
+              type="button"
+              onClick={() => void onProcess()}
+              disabled={!canProcess}
+            >
+              {processLabel}
             </button>
             <label className="analysis-slider">
               <span>Scene Sensitivity</span>
@@ -111,46 +125,81 @@ export function AnalysisPanel({
             </label>
           </div>
 
-          {!analysis && <p className="empty-copy">Select a file and click Analyze.</p>}
+          {!file && <p className="empty-copy">Select a file and click Process.</p>}
+          {file?.state === 'analyzing' && (
+            <p className="empty-copy">Running local analysis on this file.</p>
+          )}
+          {file?.errorMessage && <p className="empty-copy">{file.errorMessage}</p>}
+          {file && !analysis && file.state === 'idle' && (
+            <p className="empty-copy">Click Process to run local analysis on this file.</p>
+          )}
 
           {analysis && (
             <>
+              {analysis.warnings.length > 0 && (
+                <div className="analysis-warning-list">
+                  {analysis.warnings.map((warning) => (
+                    <span key={warning} className="info-pill info-pill-muted">
+                      {warning}
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <Section
                 title="Scene Detection"
-                icon={<ScanLine size={14} />}
+                icon={<ScanLineIcon size={14} />}
                 open={sections.scenes}
                 onToggle={() => onToggleSection('scenes')}
               >
-                <div className="scene-list">
-                  {analysis.scenes.map((scene) => (
-                    <button
-                      key={scene.index}
-                      className="scene-card"
-                      type="button"
-                      onClick={() => onSeek(scene.startTime)}
-                    >
-                      <span
-                        className="scene-thumb"
-                        style={{
-                          background: `linear-gradient(135deg, ${scene.thumbnailColor}, #18181b)`,
-                        }}
-                      />
-                      <span className="scene-copy">
-                        <span>Scene {scene.index}</span>
-                        <span>
-                          {formatSmpte(scene.startTime, file?.fps ?? 24)} -{' '}
-                          {formatSmpte(scene.endTime, file?.fps ?? 24)}
-                        </span>
-                      </span>
-                      <span className="scene-confidence">{scene.confidence}%</span>
-                    </button>
-                  ))}
-                </div>
+                {analysis.scenes.length === 0 ? (
+                  <p className="empty-copy">No video scenes were detected for this file.</p>
+                ) : (
+                  <div className="scene-list">
+                    {analysis.scenes.map((scene) => {
+                      const thumbnailUrl = scene.thumbnailPath
+                        ? convertFileSrc(scene.thumbnailPath)
+                        : null;
+
+                      return (
+                        <button
+                          key={scene.index}
+                          className="scene-card"
+                          type="button"
+                          onClick={() => onSeek(scene.startTime)}
+                        >
+                          <span
+                            className="scene-thumb"
+                            style={
+                              thumbnailUrl
+                                ? {
+                                    backgroundImage: `linear-gradient(180deg, rgba(15, 23, 42, 0.18), rgba(15, 23, 42, 0.58)), url(${thumbnailUrl})`,
+                                    backgroundPosition: 'center',
+                                    backgroundSize: 'cover',
+                                  }
+                                : {
+                                    background: `linear-gradient(135deg, ${scene.thumbnailColor}, #18181b)`,
+                                  }
+                            }
+                          />
+                          <span className="scene-copy">
+                            <span>Scene {scene.index}</span>
+                            <span>
+                              {formatSmpte(scene.startTime, file?.fps ?? 24)} -{' '}
+                              {formatSmpte(scene.endTime, file?.fps ?? 24)}
+                            </span>
+                          </span>
+                          <span className="scene-confidence">{Math.round(scene.confidence)}%</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </Section>
 
               <Section
                 title="Color Analysis"
-                icon={<SlidersHorizontal size={14} />}
+                icon={<SlidersHorizontalIcon size={14} />}
                 open={sections.palette}
                 onToggle={() => onToggleSection('palette')}
               >
@@ -172,7 +221,7 @@ export function AnalysisPanel({
 
               <Section
                 title="Audio Analysis"
-                icon={<Languages size={14} />}
+                icon={<LanguagesIcon size={14} />}
                 open={sections.audio}
                 onToggle={() => onToggleSection('audio')}
               >
@@ -183,7 +232,7 @@ export function AnalysisPanel({
                 </div>
                 <div className="audio-toolbar">
                   <span className="info-pill">
-                    <Languages size={12} />
+                    <LanguagesIcon size={12} />
                     {analysis.language}
                   </span>
                   <div className="transcript-format-switcher">
@@ -199,25 +248,29 @@ export function AnalysisPanel({
                     ))}
                   </div>
                 </div>
-                <div className="transcript-list">
-                  {analysis.transcript.map((segment) => (
-                    <button
-                      key={segment.id}
-                      className="transcript-line"
-                      type="button"
-                      onClick={() => onSeek(segment.startTime)}
-                    >
-                      <span>{formatSmpte(segment.startTime, file?.fps ?? 24)}</span>
-                      <strong>Speaker {segment.speaker}</strong>
-                      <span>{segment.text}</span>
-                    </button>
-                  ))}
-                </div>
+                {analysis.transcript.length === 0 ? (
+                  <p className="empty-copy">No transcript was generated for this run.</p>
+                ) : (
+                  <div className="transcript-list">
+                    {analysis.transcript.map((segment) => (
+                      <button
+                        key={segment.id}
+                        className="transcript-line"
+                        type="button"
+                        onClick={() => onSeek(segment.startTime)}
+                      >
+                        <span>{formatSmpte(segment.startTime, file?.fps ?? 24)}</span>
+                        <strong>Speaker {segment.speaker}</strong>
+                        <span>{segment.text}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </Section>
 
               <Section
                 title="Custom Tags"
-                icon={<ScanLine size={14} />}
+                icon={<ScanLineIcon size={14} />}
                 open={sections.tags}
                 onToggle={() => onToggleSection('tags')}
               >

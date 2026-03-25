@@ -102,6 +102,7 @@ export function createAnalysisSeed(
     language: 'EN',
     audioWaveform: createWaveform(seed),
     processedAt: new Date().toISOString(),
+    warnings: [],
   };
 
   return {

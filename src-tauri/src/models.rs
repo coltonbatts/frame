@@ -52,6 +52,7 @@ pub struct Scene {
     pub end_time: f64,
     pub confidence: f64,
     pub thumbnail_color: String,
+    pub thumbnail_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +74,27 @@ pub struct Transcript {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AnalysisResult {
+    pub scenes: Vec<Scene>,
+    pub palette: Vec<String>,
+    pub mood: Vec<String>,
+    pub transcript: Vec<TranscriptSegment>,
+    pub language: String,
+    pub audio_waveform: Vec<u8>,
+    pub processed_at: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisPayload {
+    pub analysis: AnalysisResult,
+    pub thumbnail_color: String,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExportPreset {
     pub id: String,
     pub name: String,
@@ -82,6 +104,16 @@ pub struct ExportPreset {
     pub bitrate: Option<String>,
     pub resolution: Option<String>,
     pub fps: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportJob {
+    pub queue_id: String,
+    pub input_path: String,
+    pub output_path: String,
+    pub duration: f64,
+    pub preset: ExportPreset,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

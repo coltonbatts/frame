@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod ffmpeg;
 pub mod files;
 pub mod queue;

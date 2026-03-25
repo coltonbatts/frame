@@ -26,7 +26,7 @@ interface ProjectBinProps {
   onSelect: (fileId: string) => void;
   onImport: () => void;
   onRemove: () => void;
-  onQueue: () => void;
+  onQueue: () => void | Promise<void>;
   onToggleCollapsed: () => void;
 }
 
@@ -136,7 +136,7 @@ export function ProjectBin({
           <button className="toolbar-icon-button" type="button" onClick={onImport}>
             <Plus size={14} />
           </button>
-          <button className="toolbar-icon-button" type="button" onClick={onQueue}>
+          <button className="toolbar-icon-button" type="button" onClick={() => void onQueue()}>
             <Film size={14} />
           </button>
           <button className="toolbar-icon-button" type="button" onClick={onRemove}>
