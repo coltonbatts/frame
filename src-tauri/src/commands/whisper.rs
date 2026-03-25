@@ -51,7 +51,10 @@ fn run_whisper(path: &str, model_path: &Path) -> Result<Transcript, String> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let _ = std::fs::remove_file(&out_json);
-        return Err(format!("whisper-cli transcription failed: {}", stderr.trim()));
+        return Err(format!(
+            "whisper-cli transcription failed: {}",
+            stderr.trim()
+        ));
     }
 
     let json_content = std::fs::read_to_string(&out_json)
@@ -153,7 +156,9 @@ fn value_to_seconds(value: &Value) -> Option<f64> {
 fn parse_whisper_time(value: &str) -> Option<f64> {
     let parts: Vec<&str> = value.split(':').collect();
     match parts.as_slice() {
-        [minutes, seconds] => Some(minutes.parse::<f64>().ok()? * 60.0 + seconds.parse::<f64>().ok()?),
+        [minutes, seconds] => {
+            Some(minutes.parse::<f64>().ok()? * 60.0 + seconds.parse::<f64>().ok()?)
+        }
         [hours, minutes, seconds] => Some(
             hours.parse::<f64>().ok()? * 3600.0
                 + minutes.parse::<f64>().ok()? * 60.0
@@ -164,10 +169,7 @@ fn parse_whisper_time(value: &str) -> Option<f64> {
 }
 
 fn whisper_cli_available() -> bool {
-    Command::new("whisper-cli")
-        .arg("--help")
-        .output()
-        .is_ok()
+    Command::new("whisper-cli").arg("--help").output().is_ok()
 }
 
 fn local_model_path(model: &str) -> Result<Option<PathBuf>, String> {
@@ -179,7 +181,12 @@ fn local_model_path(model: &str) -> Result<Option<PathBuf>, String> {
         "base" => ["ggml-base.bin", "base.bin"],
         "small" => ["ggml-small.bin", "small.bin"],
         "medium" => ["ggml-medium.bin", "medium.bin"],
-        _ => return Err(format!("unknown whisper model: {}. Use tiny, base, small, or medium.", model)),
+        _ => {
+            return Err(format!(
+                "unknown whisper model: {}. Use tiny, base, small, or medium.",
+                model
+            ))
+        }
     };
 
     Ok(known_names
@@ -189,7 +196,8 @@ fn local_model_path(model: &str) -> Result<Option<PathBuf>, String> {
 }
 
 fn extract_audio_for_whisper(path: &str) -> Result<PathBuf, String> {
-    let out_path = std::env::temp_dir().join(format!("frame_whisper_audio_{}.wav", std::process::id()));
+    let out_path =
+        std::env::temp_dir().join(format!("frame_whisper_audio_{}.wav", std::process::id()));
 
     let output = Command::new("ffmpeg")
         .args([
@@ -211,7 +219,10 @@ fn extract_audio_for_whisper(path: &str) -> Result<PathBuf, String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("failed to prepare audio for whisper: {}", stderr.trim()));
+        return Err(format!(
+            "failed to prepare audio for whisper: {}",
+            stderr.trim()
+        ));
     }
 
     Ok(out_path)

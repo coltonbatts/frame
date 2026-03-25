@@ -1,6 +1,6 @@
+use serde_json::Value;
 use std::path::Path;
 use std::process::Command;
-use serde_json::Value;
 
 use crate::models::{FileMetadata, Frame, MediaInfo, Thumbnail};
 
@@ -43,8 +43,10 @@ pub async fn get_file_metadata(path: String) -> Result<FileMetadata, String> {
 pub(crate) fn probe_media(path: &str) -> Result<MediaProbe, String> {
     let output = Command::new("ffprobe")
         .args([
-            "-v", "quiet",
-            "-print_format", "json",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
             "-show_format",
             "-show_streams",
             path,
@@ -60,25 +62,32 @@ pub(crate) fn probe_media(path: &str) -> Result<MediaProbe, String> {
     let json: Value = serde_json::from_slice(&output.stdout)
         .map_err(|e| format!("failed to parse ffprobe output: {}", e))?;
 
-    let format = json.get("format")
+    let format = json
+        .get("format")
         .ok_or("no format section in ffprobe output")?;
-    let streams = json.get("streams")
+    let streams = json
+        .get("streams")
         .and_then(|v| v.as_array())
         .ok_or("no streams in ffprobe output")?;
 
-    let video_stream = streams.iter()
+    let video_stream = streams
+        .iter()
         .find(|stream| stream.get("codec_type").and_then(|v| v.as_str()) == Some("video"));
-    let audio_stream = streams.iter()
+    let audio_stream = streams
+        .iter()
         .find(|stream| stream.get("codec_type").and_then(|v| v.as_str()) == Some("audio"));
-    let primary_stream = video_stream.or(audio_stream)
+    let primary_stream = video_stream
+        .or(audio_stream)
         .ok_or("no audio or video stream found")?;
 
-    let duration = format.get("duration")
+    let duration = format
+        .get("duration")
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(0.0);
 
-    let size = format.get("size")
+    let size = format
+        .get("size")
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0);
@@ -93,7 +102,8 @@ pub(crate) fn probe_media(path: &str) -> Result<MediaProbe, String> {
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as u32;
 
-    let codec = primary_stream.get("codec_name")
+    let codec = primary_stream
+        .get("codec_name")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_uppercase();
@@ -122,7 +132,11 @@ fn parse_fps(fps_str: &str) -> f64 {
     if parts.len() == 2 {
         let num: f64 = parts[0].parse().unwrap_or(24.0);
         let den: f64 = parts[1].parse().unwrap_or(1.0);
-        if den > 0.0 { num / den } else { 24.0 }
+        if den > 0.0 {
+            num / den
+        } else {
+            24.0
+        }
     } else {
         fps_str.parse().unwrap_or(24.0)
     }
@@ -154,10 +168,14 @@ pub async fn extract_frame(path: String, time: f64) -> Result<Frame, String> {
     let output = Command::new("ffmpeg")
         .args([
             "-y",
-            "-ss", &format!("{:.3}", time),
-            "-i", &path,
-            "-vframes", "1",
-            "-q:v", "2",
+            "-ss",
+            &format!("{:.3}", time),
+            "-i",
+            &path,
+            "-vframes",
+            "1",
+            "-q:v",
+            "2",
             out_path.to_str().unwrap(),
         ])
         .output()
@@ -186,8 +204,7 @@ pub async fn open_file_dialog() -> Result<Vec<String>, String> {
 /// Read a file from disk and return its bytes (for video playback via blob URL).
 #[tauri::command]
 pub async fn read_video_file(path: String) -> Result<Vec<u8>, String> {
-    std::fs::read(&path)
-        .map_err(|e| format!("failed to read file {}: {}", path, e))
+    std::fs::read(&path).map_err(|e| format!("failed to read file {}: {}", path, e))
 }
 
 /// Extract a thumbnail JPEG from a video at a given timestamp.
@@ -207,11 +224,16 @@ pub async fn extract_thumbnail(path: String, time: f64) -> Result<Thumbnail, Str
     let output = Command::new("ffmpeg")
         .args([
             "-y",
-            "-ss", &format!("{:.3}", time),
-            "-i", &path,
-            "-vframes", "1",
-            "-vf", "scale=320:-1",
-            "-q:v", "3",
+            "-ss",
+            &format!("{:.3}", time),
+            "-i",
+            &path,
+            "-vframes",
+            "1",
+            "-vf",
+            "scale=320:-1",
+            "-q:v",
+            "3",
             out_path.to_str().unwrap(),
         ])
         .output()

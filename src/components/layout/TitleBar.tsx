@@ -20,13 +20,13 @@ async function controlWindow(action: 'minimize' | 'toggleMaximize' | 'close'): P
 interface TitleBarProps {
   onImport: () => void;
   onSettings: () => void;
-  shotHotkeyHint: string;
+  analyzeHotkeyHint: string;
 }
 
 export function TitleBar({
   onImport,
   onSettings,
-  shotHotkeyHint,
+  analyzeHotkeyHint,
 }: TitleBarProps): JSX.Element {
   return (
     <header className="titlebar" data-tauri-drag-region>
@@ -44,7 +44,7 @@ export function TitleBar({
 
       <div className="titlebar-actions">
         <span className="info-pill info-pill-muted titlebar-hotkey" data-tauri-drag-region="no-drag">
-          Capture {shotHotkeyHint}
+          Analyze {analyzeHotkeyHint}
         </span>
         <button
           className="toolbar-button"

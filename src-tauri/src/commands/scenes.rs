@@ -22,9 +22,7 @@ pub async fn detect_scenes(path: String, sensitivity: f64) -> Result<Vec<Scene>,
     }
 
     let threshold = scene_threshold(sensitivity);
-    let filter = format!(
-        "select='gt(scene,{threshold:.3})',metadata=mode=print:file=-"
-    );
+    let filter = format!("select='gt(scene,{threshold:.3})',metadata=mode=print:file=-");
 
     let output = Command::new("ffmpeg")
         .args([
@@ -134,9 +132,7 @@ fn parse_number_after(line: &str, marker: &str) -> Option<f64> {
 }
 
 fn collapse_cuts(mut cuts: Vec<SceneCut>, duration: f64) -> Vec<SceneCut> {
-    cuts.retain(|cut| {
-        cut.time > 0.5 && (duration <= 0.0 || cut.time < (duration - 0.5).max(0.0))
-    });
+    cuts.retain(|cut| cut.time > 0.5 && (duration <= 0.0 || cut.time < (duration - 0.5).max(0.0)));
     cuts.sort_by(|left, right| {
         left.time
             .partial_cmp(&right.time)
@@ -165,7 +161,8 @@ fn collapse_cuts(mut cuts: Vec<SceneCut>, duration: f64) -> Vec<SceneCut> {
 
     if collapsed.len() > MAX_SCENES.saturating_sub(1) {
         collapsed.sort_by(|left, right| {
-            right.score
+            right
+                .score
                 .partial_cmp(&left.score)
                 .unwrap_or(Ordering::Equal)
         });
@@ -205,7 +202,10 @@ fn sample_thumbnail_color(path: &str, time: f64) -> Result<String, String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("thumbnail color sampling failed: {}", stderr.trim()));
+        return Err(format!(
+            "thumbnail color sampling failed: {}",
+            stderr.trim()
+        ));
     }
 
     if output.stdout.len() < 3 {

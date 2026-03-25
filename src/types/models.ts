@@ -107,3 +107,60 @@ export interface ShotListState {
   manifestCsvPath: string;
   shots: ShotItem[];
 }
+
+export type SourceType =
+  | 'YouTube'
+  | 'Stock'
+  | 'Internal Brand Asset'
+  | 'Frame.io / Editorial Export'
+  | 'Unknown'
+  | 'Other';
+
+export type ReviewStatus = 'unreviewed' | 'reviewed' | 'adjusted';
+
+export interface ShotRecord {
+  id: string;
+  videoName: string;
+  startTimeSec: number;
+  endTimeSec: number;
+  startTimecode?: string;
+  endTimecode?: string;
+  thumbnailPath?: string;
+  thumbnailFrameSec?: number;
+  description?: string;
+  sourceType?: SourceType;
+  sourceName?: string;
+  sourceReference?: string;
+  notes?: string;
+  detectionConfidence?: number;
+  reviewStatus?: ReviewStatus;
+}
+
+export interface ProvenanceState {
+  videoPath: string;
+  videoName: string;
+  videoDurationSec: number;
+  analyzedAt: string;
+  sceneThreshold: number;
+  outputDir: string;
+  thumbnailDir: string;
+  sidecarPath: string;
+  csvPath: string;
+  shots: ShotRecord[];
+  warnings: string[];
+}
+
+export interface AnalyzeProvenanceRequest {
+  path: string;
+  sensitivity: number;
+}
+
+export interface UpdateProvenanceShotRequest {
+  videoPath: string;
+  shot: ShotRecord;
+}
+
+export interface DeleteProvenanceShotRequest {
+  videoPath: string;
+  shotId: string;
+}

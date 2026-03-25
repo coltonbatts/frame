@@ -57,6 +57,63 @@ pub struct Scene {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ShotRecord {
+    pub id: String,
+    pub video_name: String,
+    pub start_time_sec: f64,
+    pub end_time_sec: f64,
+    pub start_timecode: Option<String>,
+    pub end_timecode: Option<String>,
+    pub thumbnail_path: Option<String>,
+    pub thumbnail_frame_sec: Option<f64>,
+    pub description: Option<String>,
+    pub source_type: Option<String>,
+    pub source_name: Option<String>,
+    pub source_reference: Option<String>,
+    pub notes: Option<String>,
+    pub detection_confidence: f64,
+    pub review_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProvenanceState {
+    pub video_path: String,
+    pub video_name: String,
+    pub video_duration_sec: f64,
+    pub analyzed_at: String,
+    pub scene_threshold: f64,
+    pub output_dir: String,
+    pub thumbnail_dir: String,
+    pub sidecar_path: String,
+    pub csv_path: String,
+    pub shots: Vec<ShotRecord>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyzeProvenanceRequest {
+    pub path: String,
+    pub sensitivity: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProvenanceShotRequest {
+    pub video_path: String,
+    pub shot: ShotRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteProvenanceShotRequest {
+    pub video_path: String,
+    pub shot_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TranscriptSegment {
     pub id: String,
     pub start_time: f64,

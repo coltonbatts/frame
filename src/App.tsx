@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { AnalysisPanel } from './components/analysis/AnalysisPanel';
 import { TitleBar } from './components/layout/TitleBar';
+import { ProvenancePanel } from './components/provenance/ProvenancePanel';
 import { ProjectBin } from './components/project-bin/ProjectBin';
 import { QueueBar } from './components/queue/QueueBar';
 import { SettingsModal } from './components/settings/SettingsModal';
-import { ShotListPanel } from './components/shot-list/ShotListPanel';
 import { ProgressBar } from './components/ui/ProgressBar';
 import { VideoPreview } from './components/video-preview/VideoPreview';
 import { useWindowWidth } from './hooks/useWindowWidth';
@@ -15,21 +14,18 @@ import {
   openNativeFileDialog,
 } from './lib/media';
 import {
-  canCaptureShots,
-  captureShot,
-  deleteShot,
-  exportShotListZip,
-  getShotListVideoPath,
-  loadShotList,
-  pickShotOutputDirectory,
-  revealPathInFinder,
-  setShotOutputDirectory,
-  updateShotLabel,
-} from './lib/shots';
+  analyzeProvenance,
+  canAnalyzeProvenance,
+  deleteProvenanceShot,
+  getProvenanceVideoPath,
+  loadProvenance,
+  updateProvenanceShot,
+  revealPathInFinder as revealProvenancePathInFinder,
+} from './lib/provenance';
 import type { ExportProgressEvent } from './lib/export';
 import { useAppStore, useSelectedFile } from './stores/appStore';
 
-import type { ProjectFile, ShotListState } from './types/models';
+import type { ProjectFile, ProvenanceState, ShotRecord } from './types/models';
 
 type ImportProgress = {
   completed: number;
@@ -89,20 +85,17 @@ export default function App(): JSX.Element {
   const [muted, setMuted] = useState(false);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
-  const [shotListCollapsed, setShotListCollapsed] = useState(false);
-  const [shotList, setShotList] = useState<ShotListState | null>(null);
-  const [shotListBusy, setShotListBusy] = useState(false);
-  const [shotListExporting, setShotListExporting] = useState(false);
-  const [shotListError, setShotListError] = useState<string | null>(null);
-  const [shotListMessage, setShotListMessage] = useState<string | null>(null);
+  const [provenance, setProvenance] = useState<ProvenanceState | null>(null);
+  const [provenanceBusy, setProvenanceBusy] = useState(false);
+  const [provenanceError, setProvenanceError] = useState<string | null>(null);
+  const [provenanceMessage, setProvenanceMessage] = useState<string | null>(null);
+  const [selectedShotId, setSelectedShotId] = useState<string | null>(null);
 
   const files = useAppStore((state) => state.files);
   const queue = useAppStore((state) => state.queue);
   const selectedFileId = useAppStore((state) => state.selectedFileId);
   const settingsOpen = useAppStore((state) => state.settingsOpen);
-  const analysisSections = useAppStore((state) => state.analysisSections);
   const sceneSensitivity = useAppStore((state) => state.sceneSensitivity);
-  const transcriptFormat = useAppStore((state) => state.transcriptFormat);
   const addImportedFiles = useAppStore((state) => state.addImportedFiles);
   const removeSelectedFile = useAppStore((state) => state.removeSelectedFile);
   const selectFile = useAppStore((state) => state.selectFile);
@@ -111,16 +104,9 @@ export default function App(): JSX.Element {
   const pauseQueueItem = useAppStore((state) => state.pauseQueueItem);
   const cancelQueueItem = useAppStore((state) => state.cancelQueueItem);
   const clearCompleted = useAppStore((state) => state.clearCompleted);
-  const toggleAnalysisSection = useAppStore((state) => state.toggleAnalysisSection);
   const setSceneSensitivity = useAppStore((state) => state.setSceneSensitivity);
-  const addTag = useAppStore((state) => state.addTag);
-  const removeTag = useAppStore((state) => state.removeTag);
-  const setTranscriptFormat = useAppStore((state) => state.setTranscriptFormat);
-  const processSelectedFile = useAppStore((state) => state.processSelectedFile);
-  const selectedVideoPath = getShotListVideoPath(selectedFile);
-  const selectedFileHasVideo = Boolean(selectedFile && selectedFile.width > 0 && selectedFile.height > 0);
-  const shotCaptureEnabled = Boolean(selectedVideoPath && selectedFileHasVideo);
-  const shotHotkeyHint = isApplePlatform() ? '⌘⇧S' : 'Ctrl+Shift+S';
+  const selectedVideoPath = getProvenanceVideoPath(selectedFile);
+  const provenanceHotkeyHint = isApplePlatform() ? '⌘⇧A' : 'Ctrl+Shift+A';
 
   useEffect(() => {
     setDuration(selectedFile?.duration ?? 0);
@@ -194,29 +180,32 @@ export default function App(): JSX.Element {
   useEffect(() => {
     let cancelled = false;
 
-    if (!shotCaptureEnabled || !selectedVideoPath) {
-      setShotList(null);
-      setShotListError(null);
-      setShotListMessage(null);
+    if (!selectedVideoPath) {
+      setProvenance(null);
+      setSelectedShotId(null);
+      setProvenanceError(null);
+      setProvenanceMessage(null);
       return () => {
         cancelled = true;
       };
     }
 
-    setShotListError(null);
-    setShotListMessage(null);
+    setProvenanceError(null);
+    setProvenanceMessage(null);
 
-    void loadShotList(selectedVideoPath)
-      .then((nextShotList) => {
+    void loadProvenance(selectedVideoPath)
+      .then((nextProvenance) => {
         if (!cancelled) {
-          setShotList(nextShotList);
+          setProvenance(nextProvenance);
+          setSelectedShotId(nextProvenance?.shots[0]?.id ?? null);
         }
       })
       .catch((error) => {
         if (!cancelled) {
-          setShotList(null);
-          setShotListError(
-            error instanceof Error ? error.message : 'Failed to load the shot list.',
+          setProvenance(null);
+          setSelectedShotId(null);
+          setProvenanceError(
+            error instanceof Error ? error.message : 'Failed to load the provenance sidecar.',
           );
         }
       });
@@ -224,145 +213,125 @@ export default function App(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [selectedFile?.id, selectedVideoPath, shotCaptureEnabled]);
+  }, [selectedFile?.id, selectedVideoPath]);
 
-  const handleCaptureShot = useCallback(async (): Promise<void> => {
-    if (!selectedFile || !canCaptureShots(selectedFile)) {
+  const handleAnalyzeProvenance = useCallback(async (): Promise<void> => {
+    if (!selectedFile || !selectedVideoPath || !canAnalyzeProvenance(selectedFile)) {
       return;
     }
 
-    const videoPath = getShotListVideoPath(selectedFile);
-    if (!videoPath) {
-      return;
-    }
-
-    setShotListBusy(true);
-    setShotListError(null);
-    setShotListMessage(null);
+    setProvenanceBusy(true);
+    setProvenanceError(null);
+    setProvenanceMessage(null);
 
     try {
-      const nextShotList = await captureShot({
-        videoPath,
-        timestampSeconds: Math.max(0, currentTime),
-        fps: selectedFile.fps,
+      const nextProvenance = await analyzeProvenance({
+        path: selectedVideoPath,
+        sensitivity: sceneSensitivity,
       });
 
-      setShotList(nextShotList);
-      const latestShot = nextShotList.shots[nextShotList.shots.length - 1];
-      setShotListMessage(
-        latestShot
-          ? `Captured ${latestShot.thumbnailName} at ${latestShot.timestampReadable}.`
-          : 'Shot captured.',
+      setProvenance(nextProvenance);
+      setSelectedShotId(nextProvenance.shots[0]?.id ?? null);
+      setProvenanceMessage(
+        `Detected ${nextProvenance.shots.length} shots and wrote local exports to ${nextProvenance.outputDir}.`,
       );
     } catch (error) {
-      setShotListError(getErrorMessage(error, 'Failed to capture shot.'));
+      setProvenanceError(getErrorMessage(error, 'Failed to analyze provenance.'));
     } finally {
-      setShotListBusy(false);
+      setProvenanceBusy(false);
     }
-  }, [currentTime, selectedFile]);
+  }, [sceneSensitivity, selectedFile, selectedVideoPath]);
 
-  const handleShotLabelChange = useCallback(
-    async (shotNumber: number, sceneLabel: string): Promise<void> => {
-      const videoPath = getShotListVideoPath(selectedFile);
-      if (!videoPath) {
+  const handleUpdateProvenanceShot = useCallback(
+    async (shot: ShotRecord): Promise<void> => {
+      if (!selectedVideoPath) {
         return;
       }
 
-      setShotListBusy(true);
-      setShotListError(null);
+      setProvenanceBusy(true);
+      setProvenanceError(null);
 
       try {
-        const nextShotList = await updateShotLabel({
-          videoPath,
-          shotNumber,
-          sceneLabel,
+        const nextProvenance = await updateProvenanceShot({
+          videoPath: selectedVideoPath,
+          shot,
         });
-        setShotList(nextShotList);
+        setProvenance(nextProvenance);
+        setSelectedShotId(shot.id);
+        setProvenanceMessage(`Updated ${shot.id}.`);
       } catch (error) {
-        setShotListError(getErrorMessage(error, 'Failed to update scene label.'));
+        setProvenanceError(getErrorMessage(error, 'Failed to update the shot record.'));
       } finally {
-        setShotListBusy(false);
+        setProvenanceBusy(false);
       }
     },
-    [selectedFile],
+    [selectedVideoPath],
   );
 
-  const handleDeleteShot = useCallback(
-    async (shotNumber: number): Promise<void> => {
-      const videoPath = getShotListVideoPath(selectedFile);
-      if (!videoPath) {
+  const handleDeleteProvenanceShot = useCallback(
+    async (shotId: string): Promise<void> => {
+      if (!selectedVideoPath) {
         return;
       }
 
-      setShotListBusy(true);
-      setShotListError(null);
-      setShotListMessage(null);
+      setProvenanceBusy(true);
+      setProvenanceError(null);
+      setProvenanceMessage(null);
 
       try {
-        const nextShotList = await deleteShot({
-          videoPath,
-          shotNumber,
+        const nextProvenance = await deleteProvenanceShot({
+          videoPath: selectedVideoPath,
+          shotId,
         });
-        setShotList(nextShotList);
-        setShotListMessage(`Removed shot ${shotNumber.toString().padStart(3, '0')}.`);
+        setProvenance(nextProvenance);
+        setSelectedShotId(nextProvenance.shots[0]?.id ?? null);
+        setProvenanceMessage(`Removed ${shotId}.`);
       } catch (error) {
-        setShotListError(getErrorMessage(error, 'Failed to delete shot.'));
+        setProvenanceError(getErrorMessage(error, 'Failed to delete the shot.'));
       } finally {
-        setShotListBusy(false);
+        setProvenanceBusy(false);
       }
     },
-    [selectedFile],
+    [selectedVideoPath],
   );
 
-  const handleChooseShotFolder = useCallback(async (): Promise<void> => {
-    const videoPath = getShotListVideoPath(selectedFile);
-    if (!videoPath) {
+  const handleOpenDataFolder = useCallback(async (): Promise<void> => {
+    if (!provenance?.outputDir) {
       return;
     }
 
-    const folder = await pickShotOutputDirectory(shotList?.outputDir);
-    if (!folder) {
+    await revealProvenancePathInFinder(provenance.outputDir).catch(() => undefined);
+  }, [provenance?.outputDir]);
+
+  const handleOpenThumbnails = useCallback(async (): Promise<void> => {
+    if (!provenance?.thumbnailDir) {
       return;
     }
 
-    setShotListBusy(true);
-    setShotListError(null);
-    setShotListMessage(null);
+    await revealProvenancePathInFinder(provenance.thumbnailDir).catch(() => undefined);
+  }, [provenance?.thumbnailDir]);
 
-    try {
-      const nextShotList = await setShotOutputDirectory({
-        videoPath,
-        outputDir: folder,
-      });
-      setShotList(nextShotList);
-      setShotListMessage(`Shot output moved to ${nextShotList.outputDir}.`);
-    } catch (error) {
-      setShotListError(getErrorMessage(error, 'Failed to update the shot output folder.'));
-    } finally {
-      setShotListBusy(false);
-    }
-  }, [selectedFile, shotList?.outputDir]);
-
-  const handleExportShotList = useCallback(async (): Promise<void> => {
-    const videoPath = getShotListVideoPath(selectedFile);
-    if (!videoPath) {
+  const handleExportCsv = useCallback(async (): Promise<void> => {
+    if (!provenance?.csvPath) {
       return;
     }
 
-    setShotListExporting(true);
-    setShotListError(null);
-    setShotListMessage(null);
+    await revealProvenancePathInFinder(provenance.csvPath).catch(() => undefined);
+    setProvenanceMessage(`CSV ready at ${provenance.csvPath}.`);
+  }, [provenance?.csvPath]);
 
-    try {
-      const zipPath = await exportShotListZip(videoPath);
-      setShotListMessage(`ZIP ready at ${zipPath}.`);
-      await revealPathInFinder(zipPath).catch(() => undefined);
-    } catch (error) {
-      setShotListError(getErrorMessage(error, 'Failed to export shot list.'));
-    } finally {
-      setShotListExporting(false);
+  const handleExportJson = useCallback(async (): Promise<void> => {
+    if (!provenance?.sidecarPath) {
+      return;
     }
-  }, [selectedFile]);
+
+    await revealProvenancePathInFinder(provenance.sidecarPath).catch(() => undefined);
+    setProvenanceMessage(`JSON ready at ${provenance.sidecarPath}.`);
+  }, [provenance?.sidecarPath]);
+
+  const handleSelectProvenanceShot = useCallback((shotId: string): void => {
+    setSelectedShotId(shotId);
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -376,9 +345,9 @@ export default function App(): JSX.Element {
         return;
       }
 
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 's') {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'a') {
         event.preventDefault();
-        void handleCaptureShot();
+        void handleAnalyzeProvenance();
         return;
       }
 
@@ -421,7 +390,7 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
     duration,
-    handleCaptureShot,
+    handleAnalyzeProvenance,
     removeSelectedFile,
     selectedFile?.fps,
     toggleSettings,
@@ -516,7 +485,7 @@ export default function App(): JSX.Element {
         <TitleBar
           onImport={handleNativeImport}
           onSettings={toggleSettings}
-          shotHotkeyHint={shotHotkeyHint}
+          analyzeHotkeyHint={provenanceHotkeyHint}
         />
 
         {importProgress && (
@@ -595,46 +564,26 @@ export default function App(): JSX.Element {
               onToggleCollapsed={() => setLeftCollapsed((value) => !value)}
             />
 
-            <AnalysisPanel
+            <ProvenancePanel
               file={selectedFile}
-              sections={analysisSections}
-              sensitivity={sceneSensitivity}
-              transcriptFormat={transcriptFormat}
+              provenance={provenance}
+              selectedShotId={selectedShotId}
               collapsed={rightCollapsed}
+              busy={provenanceBusy}
+              error={provenanceError}
+              message={provenanceMessage}
+              sensitivity={sceneSensitivity}
               onToggleCollapsed={() => setRightCollapsed((value) => !value)}
-              onToggleSection={toggleAnalysisSection}
+              onAnalyze={handleAnalyzeProvenance}
               onSensitivityChange={setSceneSensitivity}
+              onSelectShot={handleSelectProvenanceShot}
               onSeek={setCurrentTime}
-              onAddTag={(tag) => {
-                if (selectedFile) {
-                  addTag(selectedFile.id, tag);
-                }
-              }}
-              onRemoveTag={(tag) => {
-                if (selectedFile) {
-                  removeTag(selectedFile.id, tag);
-                }
-              }}
-              onTranscriptFormatChange={setTranscriptFormat}
-              onProcess={processSelectedFile}
-            />
-
-            <ShotListPanel
-              file={selectedFile}
-              shotList={shotList}
-              collapsed={shotListCollapsed}
-              busy={shotListBusy}
-              exporting={shotListExporting}
-              error={shotListError}
-              message={shotListMessage}
-              hotkeyHint={shotHotkeyHint}
-              onToggleCollapsed={() => setShotListCollapsed((value) => !value)}
-              onCapture={handleCaptureShot}
-              onExportZip={handleExportShotList}
-              onChooseFolder={handleChooseShotFolder}
-              onSeek={setCurrentTime}
-              onLabelChange={handleShotLabelChange}
-              onDelete={handleDeleteShot}
+              onUpdateShot={handleUpdateProvenanceShot}
+              onDeleteShot={handleDeleteProvenanceShot}
+              onOpenDataFolder={handleOpenDataFolder}
+              onOpenThumbnails={handleOpenThumbnails}
+              onExportCsv={handleExportCsv}
+              onExportJson={handleExportJson}
             />
           </section>
         </main>

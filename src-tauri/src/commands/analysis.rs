@@ -18,7 +18,10 @@ pub async fn analyze_media(path: String, sensitivity: f64) -> Result<AnalysisPay
         Ok(_) if probe.has_video => fallback_scenes(&path, probe.duration).await,
         Ok(_) => Vec::new(),
         Err(error) => {
-            warnings.push(format!("Scene detection fallback: {}", summarize_error(&error)));
+            warnings.push(format!(
+                "Scene detection fallback: {}",
+                summarize_error(&error)
+            ));
             if probe.has_video {
                 fallback_scenes(&path, probe.duration).await
             } else {
@@ -31,7 +34,10 @@ pub async fn analyze_media(path: String, sensitivity: f64) -> Result<AnalysisPay
         Ok(waveform) => waveform,
         Err(error) => {
             if probe.has_audio {
-                warnings.push(format!("Audio waveform fallback: {}", summarize_error(&error)));
+                warnings.push(format!(
+                    "Audio waveform fallback: {}",
+                    summarize_error(&error)
+                ));
             }
             silence_waveform()
         }
@@ -49,14 +55,22 @@ pub async fn analyze_media(path: String, sensitivity: f64) -> Result<AnalysisPay
             empty_transcript()
         }
         Err(error) => {
-            warnings.push(format!("Transcript unavailable: {}", summarize_error(&error)));
+            warnings.push(format!(
+                "Transcript unavailable: {}",
+                summarize_error(&error)
+            ));
             empty_transcript()
         }
     };
 
     let palette = derive_palette(&scenes);
     let mood = derive_mood(&palette, &transcript, probe.has_audio);
-    let tags = derive_tags(&mood, scenes.len(), probe.has_audio, !transcript.segments.is_empty());
+    let tags = derive_tags(
+        &mood,
+        scenes.len(),
+        probe.has_audio,
+        !transcript.segments.is_empty(),
+    );
     let thumbnail_color = scenes
         .first()
         .map(|scene| scene.thumbnail_color.clone())
@@ -153,10 +167,7 @@ fn analyze_audio_waveform(path: &str) -> Result<Vec<u8>, String> {
                 return 8;
             }
 
-            let peak = amplitudes[start..end]
-                .iter()
-                .copied()
-                .fold(0.0, f64::max);
+            let peak = amplitudes[start..end].iter().copied().fold(0.0, f64::max);
 
             ((peak * 100.0).round() as i32).clamp(8, 100) as u8
         })
@@ -187,12 +198,14 @@ fn derive_mood(palette: &[String], transcript: &Transcript, has_audio: bool) -> 
     let (brightness, warmth) = average_palette_metrics(palette);
     let mut mood = Vec::new();
 
-    mood.push(if brightness >= 0.52 {
-        "bright"
-    } else {
-        "low-light"
-    }
-    .to_string());
+    mood.push(
+        if brightness >= 0.52 {
+            "bright"
+        } else {
+            "low-light"
+        }
+        .to_string(),
+    );
     mood.push(if warmth >= 0.52 { "warm" } else { "cool" }.to_string());
 
     if !transcript.segments.is_empty() {
@@ -213,12 +226,14 @@ fn derive_tags(
     has_transcript: bool,
 ) -> Vec<String> {
     let mut tags = mood.iter().take(2).cloned().collect::<Vec<_>>();
-    tags.push(if scene_count > 1 {
-        "multi-scene"
-    } else {
-        "single-take"
-    }
-    .to_string());
+    tags.push(
+        if scene_count > 1 {
+            "multi-scene"
+        } else {
+            "single-take"
+        }
+        .to_string(),
+    );
     tags.push(if has_audio { "audio" } else { "silent" }.to_string());
 
     if has_transcript {

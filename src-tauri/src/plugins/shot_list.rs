@@ -233,10 +233,8 @@ fn export_shot_list_zip_blocking(video_path: String) -> Result<String, String> {
     }
 
     let state = persist_sidecar(&video_path, &mut sidecar)?;
-    let zip_path = PathBuf::from(&state.output_dir).join(format!(
-        "{}_shot_list.zip",
-        video_stem(&video_path)?
-    ));
+    let zip_path = PathBuf::from(&state.output_dir)
+        .join(format!("{}_shot_list.zip", video_stem(&video_path)?));
 
     let file = fs::File::create(&zip_path)
         .map_err(|error| format!("failed to create zip export: {}", error))?;
@@ -431,7 +429,11 @@ fn move_file_if_needed(from: &Path, to: &Path) -> Result<(), String> {
     }
 }
 
-fn extract_png_frame(video_path: &Path, timestamp_seconds: f64, output_path: &Path) -> Result<(), String> {
+fn extract_png_frame(
+    video_path: &Path,
+    timestamp_seconds: f64,
+    output_path: &Path,
+) -> Result<(), String> {
     if output_path.exists() {
         fs::remove_file(output_path).map_err(|error| {
             format!(
@@ -451,7 +453,9 @@ fn extract_png_frame(video_path: &Path, timestamp_seconds: f64, output_path: &Pa
             "-ss",
             &format!("{:.3}", timestamp_seconds.max(0.0)),
             "-i",
-            video_path.to_str().ok_or_else(|| "invalid video path".to_string())?,
+            video_path
+                .to_str()
+                .ok_or_else(|| "invalid video path".to_string())?,
             "-frames:v",
             "1",
             "-an",
@@ -498,7 +502,10 @@ fn csv_escape(value: &str) -> String {
 
 fn format_decimal(value: f64) -> String {
     let formatted = format!("{:.3}", value.max(0.0));
-    formatted.trim_end_matches('0').trim_end_matches('.').to_string()
+    formatted
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
 }
 
 fn clean_scene_label(value: String) -> String {
@@ -507,20 +514,18 @@ fn clean_scene_label(value: String) -> String {
 
 fn format_timestamp_readable(total_seconds: f64, fps: f64) -> String {
     let safe_seconds = total_seconds.max(0.0);
-    let safe_fps = if fps.is_finite() && fps > 0.0 { fps } else { 24.0 };
+    let safe_fps = if fps.is_finite() && fps > 0.0 {
+        fps
+    } else {
+        24.0
+    };
     let whole_seconds = safe_seconds.floor();
     let hours = (whole_seconds / 3600.0).floor() as u64;
     let minutes = ((whole_seconds % 3600.0) / 60.0).floor() as u64;
     let seconds = (whole_seconds % 60.0).floor() as u64;
     let frames = ((safe_seconds - whole_seconds) * safe_fps).floor() as u64;
 
-    format!(
-        "{:02}:{:02}:{:02}:{:02}",
-        hours,
-        minutes,
-        seconds,
-        frames
-    )
+    format!("{:02}:{:02}:{:02}:{:02}", hours, minutes, seconds, frames)
 }
 
 fn to_client_state(video_path: &Path, sidecar: &ShotListSidecar) -> ShotListState {

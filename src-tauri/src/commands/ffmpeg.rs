@@ -170,7 +170,9 @@ fn run_ffmpeg_blocking(app: AppHandle, job: ExportJob) -> Result<String, String>
 fn apply_video_options(command: &mut Command, preset: &ExportPreset) {
     match preset.video_codec.as_str() {
         "h264" => {
-            command.args(["-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p"]);
+            command.args([
+                "-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p",
+            ]);
             if let Some(bitrate) = preset.bitrate.as_deref() {
                 command.args(["-b:v", bitrate]);
             } else {
@@ -178,7 +180,9 @@ fn apply_video_options(command: &mut Command, preset: &ExportPreset) {
             }
         }
         "h265" => {
-            command.args(["-c:v", "libx265", "-preset", "medium", "-pix_fmt", "yuv420p"]);
+            command.args([
+                "-c:v", "libx265", "-preset", "medium", "-pix_fmt", "yuv420p",
+            ]);
             if let Some(bitrate) = preset.bitrate.as_deref() {
                 command.args(["-b:v", bitrate]);
             } else {
@@ -194,10 +198,19 @@ fn apply_video_options(command: &mut Command, preset: &ExportPreset) {
             }
         }
         "prores" => {
-            command.args(["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le"]);
+            command.args([
+                "-c:v",
+                "prores_ks",
+                "-profile:v",
+                "3",
+                "-pix_fmt",
+                "yuv422p10le",
+            ]);
         }
         _ => {
-            command.args(["-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p"]);
+            command.args([
+                "-c:v", "libx264", "-preset", "medium", "-pix_fmt", "yuv420p",
+            ]);
             if let Some(bitrate) = preset.bitrate.as_deref() {
                 command.args(["-b:v", bitrate]);
             }
