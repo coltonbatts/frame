@@ -9,9 +9,11 @@ import { ProgressBar } from './components/ui/ProgressBar';
 import { VideoPreview } from './components/video-preview/VideoPreview';
 import { useWindowWidth } from './hooks/useWindowWidth';
 import {
+  buildManualCaptureSheetRow,
   captureHdFrame,
   createProjectFileFromUpload,
   createProjectFileFromPath,
+  loadManualCaptureLog,
   openNativeFileDialog,
 } from './lib/media';
 import {
@@ -26,7 +28,13 @@ import {
 import type { ExportProgressEvent } from './lib/export';
 import { useAppStore, useSelectedFile } from './stores/appStore';
 
-import type { ProjectFile, ProvenanceState, ShotRecord } from './types/models';
+import type {
+  ManualCaptureRecord,
+  ManualCaptureState,
+  ProjectFile,
+  ProvenanceState,
+  ShotRecord,
+} from './types/models';
 
 type ImportProgress = {
   completed: number;
@@ -73,6 +81,28 @@ function isApplePlatform(): boolean {
   return /mac|iphone|ipad|ipod/i.test(platform);
 }
 
+async function copyTextToClipboard(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const fallback = document.createElement('textarea');
+  fallback.value = value;
+  fallback.setAttribute('readonly', 'true');
+  fallback.style.position = 'fixed';
+  fallback.style.opacity = '0';
+  document.body.appendChild(fallback);
+  fallback.select();
+
+  const copied = document.execCommand('copy');
+  document.body.removeChild(fallback);
+
+  if (!copied) {
+    throw new Error('Clipboard copy failed.');
+  }
+}
+
 export default function App(): JSX.Element {
   const dragDepth = useRef(0);
   const selectedFile = useSelectedFile();
@@ -87,6 +117,7 @@ export default function App(): JSX.Element {
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [provenance, setProvenance] = useState<ProvenanceState | null>(null);
+  const [manualCaptureLog, setManualCaptureLog] = useState<ManualCaptureState | null>(null);
   const [provenanceBusy, setProvenanceBusy] = useState(false);
   const [captureBusy, setCaptureBusy] = useState(false);
   const [provenanceError, setProvenanceError] = useState<string | null>(null);
@@ -185,6 +216,7 @@ export default function App(): JSX.Element {
 
     if (!selectedVideoPath) {
       setProvenance(null);
+      setManualCaptureLog(null);
       setSelectedShotId(null);
       setProvenanceError(null);
       setProvenanceMessage(null);
@@ -193,25 +225,45 @@ export default function App(): JSX.Element {
       };
     }
 
+    setProvenance(null);
+    setManualCaptureLog(null);
+    setSelectedShotId(null);
     setProvenanceError(null);
     setProvenanceMessage(null);
 
-    void loadProvenance(selectedVideoPath)
-      .then((nextProvenance) => {
-        if (!cancelled) {
-          setProvenance(nextProvenance);
-          setSelectedShotId(nextProvenance?.shots[0]?.id ?? null);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setProvenance(null);
-          setSelectedShotId(null);
+    void (async () => {
+      const [provenanceResult, manualResult] = await Promise.allSettled([
+        loadProvenance(selectedVideoPath),
+        loadManualCaptureLog(selectedVideoPath),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (provenanceResult.status === 'fulfilled') {
+        setProvenance(provenanceResult.value);
+        setSelectedShotId(provenanceResult.value?.shots[0]?.id ?? null);
+      } else {
+        setProvenanceError(
+          getErrorMessage(
+            provenanceResult.reason,
+            'Failed to load the provenance sidecar.',
+          ),
+        );
+      }
+
+      if (manualResult.status === 'fulfilled') {
+        setManualCaptureLog(manualResult.value);
+      } else {
+        setManualCaptureLog(null);
+        if (provenanceResult.status === 'fulfilled') {
           setProvenanceError(
-            error instanceof Error ? error.message : 'Failed to load the provenance sidecar.',
+            getErrorMessage(manualResult.reason, 'Failed to load the manual capture log.'),
           );
         }
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -267,21 +319,44 @@ export default function App(): JSX.Element {
     setProvenanceMessage(null);
 
     try {
-      const capture = await captureHdFrame({
+      const nextManualCaptureLog = await captureHdFrame({
         videoPath: selectedVideoPath,
         time: currentTime,
       });
 
+      const capture = nextManualCaptureLog.captures[nextManualCaptureLog.captures.length - 1];
+      setManualCaptureLog(nextManualCaptureLog);
+
+      if (!capture) {
+        throw new Error('Capture log did not include a provisional shot.');
+      }
+
       setProvenanceMessage(
-        `Captured ${capture.fileName} at ${capture.timecode} (${capture.width}x${capture.height}).`,
+        `Captured ${capture.shotLabel} at ${capture.timecode} (${capture.width}x${capture.height}).`,
       );
-      await revealProvenancePathInFinder(capture.outputPath).catch(() => undefined);
+      await revealProvenancePathInFinder(capture.thumbnailPath).catch(() => undefined);
     } catch (error) {
       setProvenanceError(getErrorMessage(error, 'Failed to capture a high-definition frame.'));
     } finally {
       setCaptureBusy(false);
     }
   }, [captureBusy, currentTime, provenanceBusy, selectedFile, selectedVideoPath]);
+
+  const handleCopyManualCaptureSheetRow = useCallback(
+    async (capture: ManualCaptureRecord): Promise<void> => {
+      setProvenanceError(null);
+      setProvenanceMessage(null);
+
+      try {
+        const row = await buildManualCaptureSheetRow(capture);
+        await copyTextToClipboard(row);
+        setProvenanceMessage(`Copied ${capture.shotLabel} sheet row to clipboard.`);
+      } catch (error) {
+        setProvenanceError(getErrorMessage(error, 'Failed to copy the sheet row.'));
+      }
+    },
+    [],
+  );
 
   const handleUpdateProvenanceShot = useCallback(
     async (shot: ShotRecord): Promise<void> => {
@@ -615,6 +690,7 @@ export default function App(): JSX.Element {
             <ProvenancePanel
               file={selectedFile}
               provenance={provenance}
+              manualCaptureLog={manualCaptureLog}
               selectedShotId={selectedShotId}
               collapsed={rightCollapsed}
               busy={provenanceBusy}
@@ -634,6 +710,7 @@ export default function App(): JSX.Element {
               onSeek={setCurrentTime}
               onUpdateShot={handleUpdateProvenanceShot}
               onDeleteShot={handleDeleteProvenanceShot}
+              onCopySheetRow={handleCopyManualCaptureSheetRow}
               onOpenDataFolder={handleOpenDataFolder}
               onOpenThumbnails={handleOpenThumbnails}
               onExportCsv={handleExportCsv}

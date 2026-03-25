@@ -923,6 +923,26 @@ input[type='range'] {
   padding-right: 4px;
 }
 
+.provenance-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.provenance-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.provenance-section-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
 .provenance-empty {
   margin: 0;
 }
@@ -1129,7 +1149,8 @@ input[type='range'] {
 .provenance-field textarea:focus-visible,
 .provenance-shot-main:focus-visible,
 .provenance-editor-actions .toolbar-button:focus-visible,
-.provenance-shot-actions .toolbar-icon-button:focus-visible {
+.provenance-shot-actions .toolbar-icon-button:focus-visible,
+.provenance-shot-actions .toolbar-button:focus-visible {
   outline: 2px solid rgba(129, 140, 248, 0.72);
   outline-offset: 2px;
 }

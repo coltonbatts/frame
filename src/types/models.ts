@@ -74,6 +74,26 @@ export interface CaptureHdFrameRequest {
   outputDir?: string;
 }
 
+export interface ManualCaptureRecord {
+  id: string;
+  shotNumber: number;
+  shotLabel: string;
+  thumbnailPath: string;
+  fileName: string;
+  timestampSec: number;
+  timecode: string;
+  width: number;
+  height: number;
+}
+
+export interface ManualCaptureState {
+  videoPath: string;
+  videoName: string;
+  outputDir: string;
+  nextShotNumber: number;
+  captures: ManualCaptureRecord[];
+}
+
 export interface CapturedFrame {
   outputPath: string;
   outputDir: string;

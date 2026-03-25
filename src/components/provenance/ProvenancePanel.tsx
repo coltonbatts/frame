@@ -3,6 +3,7 @@ import {
   Camera,
   ChevronDown,
   ChevronRight,
+  Copy,
   FolderOpen,
   Image,
   Layers3,
@@ -12,7 +13,14 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatResolution, formatSmpte } from '../../lib/format';
-import type { ProjectFile, ProvenanceState, ShotRecord, SourceType } from '../../types/models';
+import type {
+  ManualCaptureRecord,
+  ManualCaptureState,
+  ProjectFile,
+  ProvenanceState,
+  ShotRecord,
+  SourceType,
+} from '../../types/models';
 
 const SOURCE_TYPES: SourceType[] = [
   'YouTube',
@@ -26,6 +34,7 @@ const SOURCE_TYPES: SourceType[] = [
 interface ProvenancePanelProps {
   file?: ProjectFile;
   provenance: ProvenanceState | null;
+  manualCaptureLog: ManualCaptureState | null;
   selectedShotId: string | null;
   collapsed: boolean;
   busy: boolean;
@@ -43,6 +52,7 @@ interface ProvenancePanelProps {
   onSeek: (time: number) => void;
   onUpdateShot: (shot: ShotRecord) => void | Promise<void>;
   onDeleteShot: (shotId: string) => void | Promise<void>;
+  onCopySheetRow: (capture: ManualCaptureRecord) => void | Promise<void>;
   onOpenDataFolder: () => void | Promise<void>;
   onOpenThumbnails: () => void | Promise<void>;
   onExportCsv: () => void | Promise<void>;
@@ -66,6 +76,66 @@ function buildShotUpdate(shot: ShotRecord, patch: Partial<ShotRecord>): ShotReco
     ...shot,
     ...patch,
   };
+}
+
+function ManualCaptureCard({
+  capture,
+  onSeek,
+  onCopySheetRow,
+}: {
+  capture: ManualCaptureRecord;
+  onSeek: (time: number) => void;
+  onCopySheetRow: (capture: ManualCaptureRecord) => void | Promise<void>;
+}): JSX.Element {
+  const thumbnailUrl = capture.thumbnailPath ? convertFileSrc(capture.thumbnailPath) : null;
+
+  return (
+    <article className="provenance-shot-card">
+      <button
+        className="provenance-shot-main"
+        type="button"
+        onClick={() => onSeek(capture.timestampSec)}
+        aria-label={`Seek to ${capture.shotLabel}`}
+      >
+        <span
+          className="provenance-shot-thumb"
+          style={
+            thumbnailUrl
+              ? {
+                  backgroundImage: `linear-gradient(180deg, rgba(15, 23, 42, 0.12), rgba(15, 23, 42, 0.58)), url(${thumbnailUrl})`,
+                  backgroundPosition: 'center',
+                  backgroundSize: 'cover',
+                }
+              : undefined
+          }
+        >
+          {!thumbnailUrl && <Image size={14} />}
+        </span>
+
+        <span className="provenance-shot-copy">
+          <span className="provenance-shot-header">
+            <strong>{capture.shotLabel}</strong>
+            <span className="provenance-shot-status">Manual</span>
+          </span>
+          <span className="provenance-shot-time">{capture.timecode}</span>
+          <span className="provenance-shot-meta">
+            {capture.fileName} • {formatResolution(capture.width, capture.height)}
+          </span>
+        </span>
+      </button>
+
+      <span className="provenance-shot-actions">
+        <button
+          className="toolbar-button"
+          type="button"
+          onClick={() => void onCopySheetRow(capture)}
+        >
+          <Copy size={14} />
+          Copy Sheet Row
+        </button>
+      </span>
+    </article>
+  );
 }
 
 function ShotCard({
@@ -347,6 +417,7 @@ function ShotEditor({
 export function ProvenancePanel({
   file,
   provenance,
+  manualCaptureLog,
   selectedShotId,
   collapsed,
   busy,
@@ -364,6 +435,7 @@ export function ProvenancePanel({
   onSeek,
   onUpdateShot,
   onDeleteShot,
+  onCopySheetRow,
   onOpenDataFolder,
   onOpenThumbnails,
   onExportCsv,
@@ -378,6 +450,7 @@ export function ProvenancePanel({
 
   const hasFile = Boolean(file && file.width > 0 && file.height > 0);
   const shotCount = provenance?.shots.length ?? 0;
+  const manualCaptureCount = manualCaptureLog?.captures.length ?? 0;
   const hasOutput = Boolean(provenance);
   const analyzeDisabled = busy || analysisActionPending || captureBusy || !hasFile;
 
@@ -559,24 +632,60 @@ export function ProvenancePanel({
           ) : null}
 
           <div className="provenance-list">
-            {!provenance && file ? (
-              <p className="empty-copy provenance-empty">
-                No provenance shot list yet. Click Analyze Cuts to generate one, or use Capture HD
-                to save a manual still.
-              </p>
+            {file ? (
+              <section className="provenance-section">
+                <div className="provenance-section-header">
+                  <div>
+                    <p className="panel-kicker">Manual Pulls</p>
+                    <h3>Provisional Shots</h3>
+                  </div>
+                  <span className="info-pill info-pill-muted">
+                    {manualCaptureCount} {manualCaptureCount === 1 ? 'shot' : 'shots'}
+                  </span>
+                </div>
+
+                {manualCaptureCount > 0 && manualCaptureLog ? (
+                  manualCaptureLog.captures.map((capture) => (
+                    <ManualCaptureCard
+                      key={capture.id}
+                      capture={capture}
+                      onSeek={onSeek}
+                      onCopySheetRow={onCopySheetRow}
+                    />
+                  ))
+                ) : (
+                  <p className="empty-copy provenance-empty">
+                    Capture HD to start the sheet log for this video.
+                  </p>
+                )}
+              </section>
             ) : null}
 
-            {provenance?.shots.map((shot) => (
-              <ShotCard
-                key={shot.id}
-                shot={shot}
-                selected={shot.id === selectedShot?.id}
-                fps={fps}
-                onSelect={onSelectShot}
-                onSeek={onSeek}
-                onDelete={onDeleteShot}
-              />
-            ))}
+            {provenance ? (
+              <section className="provenance-section">
+                <div className="provenance-section-header">
+                  <div>
+                    <p className="panel-kicker">Detected Cuts</p>
+                    <h3>Scene Shots</h3>
+                  </div>
+                  <span className="info-pill info-pill-muted">
+                    {shotCount} {shotCount === 1 ? 'shot' : 'shots'}
+                  </span>
+                </div>
+
+                {provenance.shots.map((shot) => (
+                  <ShotCard
+                    key={shot.id}
+                    shot={shot}
+                    selected={shot.id === selectedShot?.id}
+                    fps={fps}
+                    onSelect={onSelectShot}
+                    onSeek={onSeek}
+                    onDelete={onDeleteShot}
+                  />
+                ))}
+              </section>
+            ) : null}
           </div>
         </>
       )}

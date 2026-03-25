@@ -54,6 +54,32 @@ pub struct CaptureHdFrameRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ManualCaptureRecord {
+    pub id: String,
+    pub shot_number: u32,
+    pub shot_label: String,
+    pub thumbnail_path: String,
+    pub file_name: String,
+    pub timestamp_sec: f64,
+    pub timecode: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualCaptureState {
+    pub video_path: String,
+    pub video_name: String,
+    pub output_dir: String,
+    #[serde(default)]
+    pub next_shot_number: u32,
+    #[serde(default)]
+    pub captures: Vec<ManualCaptureRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CapturedFrame {
     pub output_path: String,
     pub output_dir: String,

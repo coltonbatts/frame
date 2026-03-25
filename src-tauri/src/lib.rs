@@ -13,6 +13,8 @@ pub fn run() {
             commands::files::get_file_metadata,
             commands::files::extract_frame,
             commands::files::capture_hd_frame,
+            commands::files::build_manual_capture_sheet_row,
+            commands::files::load_manual_capture_log,
             commands::files::probe_file,
             commands::files::read_video_file,
             commands::files::extract_thumbnail,

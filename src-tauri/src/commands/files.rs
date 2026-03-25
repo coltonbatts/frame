@@ -4,8 +4,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::models::{
-    CaptureHdFrameRequest, CapturedFrame, FileMetadata, Frame, MediaInfo, Thumbnail,
+    CaptureHdFrameRequest, FileMetadata, Frame, ManualCaptureRecord, ManualCaptureState, MediaInfo,
+    Thumbnail,
 };
+
+const MANUAL_CAPTURE_FILE_NAME: &str = "manual-captures.json";
 
 pub(crate) struct MediaProbe {
     pub duration: f64,
@@ -196,10 +199,39 @@ pub async fn extract_frame(path: String, time: f64) -> Result<Frame, String> {
 }
 
 #[tauri::command]
-pub async fn capture_hd_frame(request: CaptureHdFrameRequest) -> Result<CapturedFrame, String> {
+pub async fn capture_hd_frame(
+    request: CaptureHdFrameRequest,
+) -> Result<ManualCaptureState, String> {
     tauri::async_runtime::spawn_blocking(move || capture_hd_frame_blocking(request))
         .await
         .map_err(|error| format!("frame capture worker failed to join: {}", error))?
+}
+
+#[tauri::command]
+pub async fn load_manual_capture_log(video_path: String) -> Result<ManualCaptureState, String> {
+    let video_path = PathBuf::from(&video_path);
+    let resolved_video_path = resolve_existing_video_path(&video_path)?;
+    let output_dir = resolve_capture_output_dir(resolved_video_path.as_path(), None)?;
+    let sidecar_path = manual_capture_sidecar_path_for_video(resolved_video_path.as_path())?;
+
+    if !sidecar_path.exists() {
+        return Ok(default_manual_capture_state(
+            resolved_video_path.as_path(),
+            &output_dir,
+        ));
+    }
+
+    let bytes = fs::read(&sidecar_path)
+        .map_err(|error| format!("failed to read manual capture sidecar: {}", error))?;
+    let mut state = serde_json::from_slice::<ManualCaptureState>(&bytes)
+        .map_err(|error| format!("failed to parse manual capture sidecar: {}", error))?;
+    normalize_manual_capture_state(resolved_video_path.as_path(), &output_dir, &mut state);
+    Ok(state)
+}
+
+#[tauri::command]
+pub fn build_manual_capture_sheet_row(capture: ManualCaptureRecord) -> Result<String, String> {
+    Ok(manual_capture_sheet_row_text(&capture))
 }
 
 /// Open native file dialog and return selected file paths.
@@ -296,22 +328,31 @@ pub fn show_in_finder(path: String) -> Result<(), String> {
     Ok(())
 }
 
-fn capture_hd_frame_blocking(request: CaptureHdFrameRequest) -> Result<CapturedFrame, String> {
+fn capture_hd_frame_blocking(request: CaptureHdFrameRequest) -> Result<ManualCaptureState, String> {
     let video_path = PathBuf::from(&request.video_path);
-    let probe = probe_media(&request.video_path)?;
+    let resolved_video_path = resolve_existing_video_path(&video_path)?;
+    let resolved_video_path_string = resolved_video_path.to_string_lossy().to_string();
+    let probe = probe_media(&resolved_video_path_string)?;
 
     if !probe.has_video {
         return Err("high-definition screenshots require a video stream".to_string());
     }
 
-    let output_dir = resolve_capture_output_dir(&video_path, request.output_dir)?;
+    let output_dir = resolve_capture_output_dir(resolved_video_path.as_path(), None)?;
     fs::create_dir_all(&output_dir)
         .map_err(|error| format!("failed to create screenshot folder: {}", error))?;
+
+    let mut state =
+        load_or_create_manual_capture_state(resolved_video_path.as_path(), &output_dir)?;
+    normalize_manual_capture_state(resolved_video_path.as_path(), &output_dir, &mut state);
 
     let capture_time = clamp_capture_time(request.time, probe.duration);
     let timecode = format_timecode(capture_time, probe.fps);
     let capture_tag = format_timecode_tag(capture_time, probe.fps);
-    let base_name = format!("capture_{}.png", capture_tag);
+    let shot_number = state.next_shot_number.max(1);
+    let shot_id = format_manual_capture_id(shot_number);
+    let shot_label = format_manual_capture_label(shot_number);
+    let base_name = format!("{}_{}.png", shot_id, capture_tag);
     let output_path = unique_output_path(&output_dir, &base_name);
     let output_path_str = output_path
         .to_str()
@@ -324,7 +365,7 @@ fn capture_hd_frame_blocking(request: CaptureHdFrameRequest) -> Result<CapturedF
             "error",
             "-y",
             "-i",
-            &request.video_path,
+            &resolved_video_path_string,
             "-ss",
             &format!("{:.3}", capture_time),
             "-frames:v",
@@ -351,15 +392,156 @@ fn capture_hd_frame_blocking(request: CaptureHdFrameRequest) -> Result<CapturedF
         .unwrap_or("capture.png")
         .to_string();
 
-    Ok(CapturedFrame {
-        output_path: output_path.to_string_lossy().into_owned(),
-        output_dir: output_dir.to_string_lossy().into_owned(),
-        file_name,
-        timestamp: capture_time,
-        timecode,
+    state.captures.push(ManualCaptureRecord {
+        id: shot_id,
+        shot_number,
+        shot_label,
+        thumbnail_path: output_path.to_string_lossy().into_owned(),
+        file_name: file_name.clone(),
+        timestamp_sec: capture_time,
+        timecode: timecode.clone(),
         width: probe.width,
         height: probe.height,
-    })
+    });
+    state.next_shot_number = shot_number.saturating_add(1);
+    persist_manual_capture_state(&state)?;
+
+    Ok(state)
+}
+
+fn load_or_create_manual_capture_state(
+    video_path: &Path,
+    output_dir: &Path,
+) -> Result<ManualCaptureState, String> {
+    let sidecar_path = manual_capture_sidecar_path_for_output(output_dir);
+    if !sidecar_path.exists() {
+        return Ok(default_manual_capture_state(video_path, output_dir));
+    }
+
+    let bytes = fs::read(&sidecar_path)
+        .map_err(|error| format!("failed to read manual capture sidecar: {}", error))?;
+    let mut state = serde_json::from_slice::<ManualCaptureState>(&bytes)
+        .map_err(|error| format!("failed to parse manual capture sidecar: {}", error))?;
+    normalize_manual_capture_state(video_path, output_dir, &mut state);
+    Ok(state)
+}
+
+fn default_manual_capture_state(video_path: &Path, output_dir: &Path) -> ManualCaptureState {
+    ManualCaptureState {
+        video_path: video_path.to_string_lossy().into_owned(),
+        video_name: file_name(video_path.to_string_lossy().as_ref()),
+        output_dir: output_dir.to_string_lossy().into_owned(),
+        next_shot_number: 1,
+        captures: Vec::new(),
+    }
+}
+
+fn normalize_manual_capture_state(
+    video_path: &Path,
+    output_dir: &Path,
+    state: &mut ManualCaptureState,
+) {
+    state.video_path = video_path.to_string_lossy().into_owned();
+    state.video_name = file_name(video_path.to_string_lossy().as_ref());
+    state.output_dir = output_dir.to_string_lossy().into_owned();
+    state.captures.sort_by(|left, right| {
+        left.shot_number
+            .cmp(&right.shot_number)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+
+    for capture in &mut state.captures {
+        capture.shot_number = capture.shot_number.max(1);
+        capture.id = format_manual_capture_id(capture.shot_number);
+        capture.shot_label = format_manual_capture_label(capture.shot_number);
+        if capture.file_name.trim().is_empty() {
+            capture.file_name = Path::new(&capture.thumbnail_path)
+                .file_name()
+                .and_then(|value| value.to_str())
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_default();
+        }
+    }
+
+    let highest_shot_number = state
+        .captures
+        .iter()
+        .map(|capture| capture.shot_number)
+        .max()
+        .unwrap_or(0);
+    state.next_shot_number = state
+        .next_shot_number
+        .max(highest_shot_number.saturating_add(1));
+    if state.next_shot_number == 0 {
+        state.next_shot_number = 1;
+    }
+}
+
+fn persist_manual_capture_state(state: &ManualCaptureState) -> Result<(), String> {
+    let output_dir = PathBuf::from(&state.output_dir);
+    fs::create_dir_all(&output_dir)
+        .map_err(|error| format!("failed to create screenshot folder: {}", error))?;
+
+    let sidecar_path = manual_capture_sidecar_path_for_output(&output_dir);
+    let bytes = serde_json::to_vec_pretty(state)
+        .map_err(|error| format!("failed to serialize manual capture sidecar: {}", error))?;
+    fs::write(&sidecar_path, bytes)
+        .map_err(|error| format!("failed to write manual capture sidecar: {}", error))
+}
+
+fn manual_capture_sheet_row_text(capture: &ManualCaptureRecord) -> String {
+    [
+        sheet_cell(&capture.shot_label),
+        sheet_cell(&capture.file_name),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+    ]
+    .join("\t")
+}
+
+fn sheet_cell(value: &str) -> String {
+    value.replace(['\t', '\r', '\n'], " ").trim().to_string()
+}
+
+fn format_manual_capture_id(shot_number: u32) -> String {
+    format!("shot-{:03}", shot_number.max(1))
+}
+
+fn format_manual_capture_label(shot_number: u32) -> String {
+    format!("Shot {:03}", shot_number.max(1))
+}
+
+fn manual_capture_sidecar_path_for_video(video_path: &Path) -> Result<PathBuf, String> {
+    Ok(resolve_capture_output_dir(video_path, None)?.join(MANUAL_CAPTURE_FILE_NAME))
+}
+
+fn manual_capture_sidecar_path_for_output(output_dir: &Path) -> PathBuf {
+    output_dir.join(MANUAL_CAPTURE_FILE_NAME)
+}
+
+fn resolve_existing_video_path(video_path: &Path) -> Result<PathBuf, String> {
+    if !video_path.exists() {
+        return Err(format!(
+            "video path was not found: {}",
+            video_path.to_string_lossy()
+        ));
+    }
+
+    if !video_path.is_file() {
+        return Err(format!(
+            "video path is not a file: {}",
+            video_path.to_string_lossy()
+        ));
+    }
+
+    Ok(video_path.to_path_buf())
 }
 
 fn resolve_capture_output_dir(
@@ -507,12 +689,150 @@ mod tests {
         }))
         .expect("capture should succeed");
 
-        assert!(result.output_path.ends_with(".png"));
-        assert!(Path::new(&result.output_path).exists());
+        assert_eq!(result.captures.len(), 1);
+        let capture = &result.captures[0];
+        assert!(capture.thumbnail_path.ends_with(".png"));
+        assert!(Path::new(&capture.thumbnail_path).exists());
         assert!(result.output_dir.ends_with("_screenshots"));
-        assert_eq!(result.width, 320);
-        assert_eq!(result.height, 180);
+        assert_eq!(capture.width, 320);
+        assert_eq!(capture.height, 180);
+        assert_eq!(capture.id, "shot-001");
+        assert_eq!(capture.shot_label, "Shot 001");
+        assert!(capture.file_name.contains("shot-001"));
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn manual_capture_sequence_persists_per_video_and_resets_for_new_videos() {
+        let temp_dir = unique_temp_dir("manual-sequence");
+        fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let video_path = create_test_video(&temp_dir).expect("generate synthetic mp4");
+        let video_path_string = video_path.to_string_lossy().into_owned();
+
+        let first = tauri::async_runtime::block_on(capture_hd_frame(CaptureHdFrameRequest {
+            video_path: video_path_string.clone(),
+            time: 0.25,
+            output_dir: None,
+        }))
+        .expect("first capture should succeed");
+
+        assert_eq!(first.captures.len(), 1);
+        assert_eq!(first.captures[0].id, "shot-001");
+        assert_eq!(first.captures[0].shot_label, "Shot 001");
+        assert!(first.captures[0].file_name.contains("shot-001"));
+        assert!(Path::new(&first.captures[0].thumbnail_path).exists());
+        assert_eq!(first.next_shot_number, 2);
+
+        let reloaded =
+            tauri::async_runtime::block_on(load_manual_capture_log(video_path_string.clone()))
+                .expect("reloading manual capture log should succeed");
+        assert_eq!(reloaded.captures.len(), 1);
+        assert_eq!(reloaded.captures[0].id, "shot-001");
+        assert_eq!(reloaded.next_shot_number, 2);
+
+        let second = tauri::async_runtime::block_on(capture_hd_frame(CaptureHdFrameRequest {
+            video_path: video_path_string.clone(),
+            time: 0.75,
+            output_dir: None,
+        }))
+        .expect("second capture should succeed");
+
+        assert_eq!(second.captures.len(), 2);
+        assert_eq!(second.captures[1].id, "shot-002");
+        assert_eq!(second.captures[1].shot_label, "Shot 002");
+        assert!(second.captures[1].file_name.contains("shot-002"));
+        assert!(Path::new(&second.captures[1].thumbnail_path).exists());
+        assert_eq!(second.next_shot_number, 3);
+
+        let other_dir = unique_temp_dir("manual-sequence-reset");
+        fs::create_dir_all(&other_dir).expect("create second temp dir");
+        let other_video_path =
+            create_test_video(&other_dir).expect("generate second synthetic mp4");
+        let other_video_path_string = other_video_path.to_string_lossy().into_owned();
+
+        let reset = tauri::async_runtime::block_on(capture_hd_frame(CaptureHdFrameRequest {
+            video_path: other_video_path_string,
+            time: 0.4,
+            output_dir: None,
+        }))
+        .expect("capture on new video should succeed");
+
+        assert_eq!(reset.captures.len(), 1);
+        assert_eq!(reset.captures[0].id, "shot-001");
+        assert_eq!(reset.next_shot_number, 2);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::remove_dir_all(&other_dir);
+    }
+
+    #[test]
+    fn manual_capture_sequence_does_not_reuse_deleted_ids() {
+        let temp_dir = unique_temp_dir("manual-delete");
+        fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let video_path = create_test_video(&temp_dir).expect("generate synthetic mp4");
+        let video_path_string = video_path.to_string_lossy().into_owned();
+
+        let first = tauri::async_runtime::block_on(capture_hd_frame(CaptureHdFrameRequest {
+            video_path: video_path_string.clone(),
+            time: 0.3,
+            output_dir: None,
+        }))
+        .expect("first capture should succeed");
+        assert_eq!(first.captures[0].id, "shot-001");
+
+        let sidecar_path = manual_capture_sidecar_path_for_video(video_path.as_path())
+            .expect("resolve sidecar path");
+        let mut state: ManualCaptureState =
+            serde_json::from_slice(&fs::read(&sidecar_path).expect("read manual capture sidecar"))
+                .expect("parse manual capture sidecar");
+        state.captures.clear();
+        state.next_shot_number = 2;
+        fs::write(
+            &sidecar_path,
+            serde_json::to_vec_pretty(&state).expect("serialize modified sidecar"),
+        )
+        .expect("write modified sidecar");
+
+        let reloaded =
+            tauri::async_runtime::block_on(load_manual_capture_log(video_path_string.clone()))
+                .expect("reloading modified log should succeed");
+        assert!(reloaded.captures.is_empty());
+        assert_eq!(reloaded.next_shot_number, 2);
+
+        let next = tauri::async_runtime::block_on(capture_hd_frame(CaptureHdFrameRequest {
+            video_path: video_path_string,
+            time: 0.6,
+            output_dir: None,
+        }))
+        .expect("capture after deletion should succeed");
+
+        assert_eq!(next.captures.len(), 1);
+        assert_eq!(next.captures[0].id, "shot-002");
+        assert_eq!(next.next_shot_number, 3);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn build_manual_capture_sheet_row_writes_google_sheets_columns() {
+        let row = build_manual_capture_sheet_row(ManualCaptureRecord {
+            id: "shot-001".to_string(),
+            shot_number: 1,
+            shot_label: "Shot 001".to_string(),
+            thumbnail_path: "/tmp/manual/shot-001_00-00-05-12.png".to_string(),
+            file_name: "shot-001_00-00-05-12.png".to_string(),
+            timestamp_sec: 5.5,
+            timecode: "00:00:05:12".to_string(),
+            width: 1920,
+            height: 1080,
+        })
+        .expect("build row");
+
+        let columns: Vec<&str> = row.split('\t').collect();
+        assert_eq!(columns.len(), 10);
+        assert_eq!(columns[0], "Shot 001");
+        assert_eq!(columns[1], "shot-001_00-00-05-12.png");
+        assert!(columns[2..].iter().all(|column| column.is_empty()));
     }
 }

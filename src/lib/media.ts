@@ -2,7 +2,12 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 import { join, tempDir } from '@tauri-apps/api/path';
-import type { CaptureHdFrameRequest, CapturedFrame, ProjectFile } from '../types/models';
+import type {
+  CaptureHdFrameRequest,
+  ManualCaptureRecord,
+  ManualCaptureState,
+  ProjectFile,
+} from '../types/models';
 
 const VIDEO_EXTENSIONS = new Set([
   'avi', 'm4v', 'mkv', 'mov', 'mp4',
@@ -223,6 +228,16 @@ export async function createProjectFileFromUpload(
 
 export async function captureHdFrame(
   request: CaptureHdFrameRequest,
-): Promise<CapturedFrame> {
-  return invoke<CapturedFrame>('capture_hd_frame', { request });
+): Promise<ManualCaptureState> {
+  return invoke<ManualCaptureState>('capture_hd_frame', { request });
+}
+
+export async function loadManualCaptureLog(videoPath: string): Promise<ManualCaptureState> {
+  return invoke<ManualCaptureState>('load_manual_capture_log', { videoPath });
+}
+
+export async function buildManualCaptureSheetRow(
+  capture: ManualCaptureRecord,
+): Promise<string> {
+  return invoke<string>('build_manual_capture_sheet_row', { capture });
 }
