@@ -1,5 +1,6 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
 import {
+  Camera,
   ChevronDown,
   ChevronRight,
   FolderOpen,
@@ -28,11 +29,15 @@ interface ProvenancePanelProps {
   selectedShotId: string | null;
   collapsed: boolean;
   busy: boolean;
+  captureBusy: boolean;
+  captureDisabled: boolean;
+  captureHotkeyHint: string;
   error: string | null;
   message: string | null;
   sensitivity: number;
   onToggleCollapsed: () => void;
   onAnalyze: () => void | Promise<void>;
+  onCaptureHdFrame: () => void | Promise<void>;
   onSensitivityChange: (value: number) => void;
   onSelectShot: (shotId: string) => void;
   onSeek: (time: number) => void;
@@ -345,11 +350,15 @@ export function ProvenancePanel({
   selectedShotId,
   collapsed,
   busy,
+  captureBusy,
+  captureDisabled,
+  captureHotkeyHint,
   error,
   message,
   sensitivity,
   onToggleCollapsed,
   onAnalyze,
+  onCaptureHdFrame,
   onSensitivityChange,
   onSelectShot,
   onSeek,
@@ -370,7 +379,7 @@ export function ProvenancePanel({
   const hasFile = Boolean(file && file.width > 0 && file.height > 0);
   const shotCount = provenance?.shots.length ?? 0;
   const hasOutput = Boolean(provenance);
-  const analyzeDisabled = busy || analysisActionPending || !hasFile;
+  const analyzeDisabled = busy || analysisActionPending || captureBusy || !hasFile;
 
   const handleAnalyze = async (): Promise<void> => {
     if (analyzeDisabled) {
@@ -405,6 +414,15 @@ export function ProvenancePanel({
       {!collapsed && (
         <>
           <div className="provenance-toolbar">
+            <button
+              className="toolbar-button"
+              type="button"
+              onClick={() => void onCaptureHdFrame()}
+              disabled={captureDisabled}
+            >
+              <Camera size={14} />
+              {captureBusy ? 'Capturing…' : 'Capture HD'}
+            </button>
             <button
               className="toolbar-button toolbar-button-primary"
               type="button"
@@ -460,6 +478,9 @@ export function ProvenancePanel({
             <span className="info-pill info-pill-muted">
               Sensitivity {sensitivity}
             </span>
+            <span className="info-pill info-pill-muted">
+              HD capture {captureHotkeyHint}
+            </span>
           </div>
 
           {file ? (
@@ -484,7 +505,10 @@ export function ProvenancePanel({
             <div className="provenance-dropzone">
               <p className="panel-kicker">Drop Zone</p>
               <strong>Drop an MP4 into Frame, then analyze cuts locally.</strong>
-              <p>Frame will detect likely shot boundaries, extract one thumbnail per shot, and write a local CSV/JSON sidecar.</p>
+              <p>
+                Frame will detect likely shot boundaries, extract one thumbnail per shot, and
+                capture full-resolution stills for your Google Doc or Sheet.
+              </p>
             </div>
           )}
 
@@ -536,7 +560,10 @@ export function ProvenancePanel({
 
           <div className="provenance-list">
             {!provenance && file ? (
-              <p className="empty-copy provenance-empty">No provenance shot list yet. Click Analyze Cuts to generate one.</p>
+              <p className="empty-copy provenance-empty">
+                No provenance shot list yet. Click Analyze Cuts to generate one, or use Capture HD
+                to save a manual still.
+              </p>
             ) : null}
 
             {provenance?.shots.map((shot) => (

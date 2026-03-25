@@ -68,6 +68,22 @@ export interface ProjectFile {
   errorMessage?: string;
 }
 
+export interface CaptureHdFrameRequest {
+  videoPath: string;
+  time: number;
+  outputDir?: string;
+}
+
+export interface CapturedFrame {
+  outputPath: string;
+  outputDir: string;
+  fileName: string;
+  timestamp: number;
+  timecode: string;
+  width: number;
+  height: number;
+}
+
 export interface ExportPreset {
   id: string;
   name: string;

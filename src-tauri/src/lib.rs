@@ -12,6 +12,7 @@ pub fn run() {
             commands::files::open_file_dialog,
             commands::files::get_file_metadata,
             commands::files::extract_frame,
+            commands::files::capture_hd_frame,
             commands::files::probe_file,
             commands::files::read_video_file,
             commands::files::extract_thumbnail,

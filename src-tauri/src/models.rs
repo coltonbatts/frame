@@ -46,6 +46,26 @@ pub struct Thumbnail {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CaptureHdFrameRequest {
+    pub video_path: String,
+    pub time: f64,
+    pub output_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapturedFrame {
+    pub output_path: String,
+    pub output_dir: String,
+    pub file_name: String,
+    pub timestamp: f64,
+    pub timecode: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Scene {
     pub index: usize,
     pub start_time: f64,

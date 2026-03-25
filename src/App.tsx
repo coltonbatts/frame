@@ -9,6 +9,7 @@ import { ProgressBar } from './components/ui/ProgressBar';
 import { VideoPreview } from './components/video-preview/VideoPreview';
 import { useWindowWidth } from './hooks/useWindowWidth';
 import {
+  captureHdFrame,
   createProjectFileFromUpload,
   createProjectFileFromPath,
   openNativeFileDialog,
@@ -87,6 +88,7 @@ export default function App(): JSX.Element {
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [provenance, setProvenance] = useState<ProvenanceState | null>(null);
   const [provenanceBusy, setProvenanceBusy] = useState(false);
+  const [captureBusy, setCaptureBusy] = useState(false);
   const [provenanceError, setProvenanceError] = useState<string | null>(null);
   const [provenanceMessage, setProvenanceMessage] = useState<string | null>(null);
   const [selectedShotId, setSelectedShotId] = useState<string | null>(null);
@@ -107,6 +109,7 @@ export default function App(): JSX.Element {
   const setSceneSensitivity = useAppStore((state) => state.setSceneSensitivity);
   const selectedVideoPath = getProvenanceVideoPath(selectedFile);
   const provenanceHotkeyHint = isApplePlatform() ? '⌘⇧A' : 'Ctrl+Shift+A';
+  const captureHotkeyHint = isApplePlatform() ? '⌘⇧S' : 'Ctrl+Shift+S';
 
   useEffect(() => {
     setDuration(selectedFile?.duration ?? 0);
@@ -216,7 +219,12 @@ export default function App(): JSX.Element {
   }, [selectedFile?.id, selectedVideoPath]);
 
   const handleAnalyzeProvenance = useCallback(async (): Promise<void> => {
-    if (!selectedFile || !selectedVideoPath || !canAnalyzeProvenance(selectedFile)) {
+    if (
+      captureBusy ||
+      !selectedFile ||
+      !selectedVideoPath ||
+      !canAnalyzeProvenance(selectedFile)
+    ) {
       return;
     }
 
@@ -240,7 +248,40 @@ export default function App(): JSX.Element {
     } finally {
       setProvenanceBusy(false);
     }
-  }, [sceneSensitivity, selectedFile, selectedVideoPath]);
+  }, [captureBusy, sceneSensitivity, selectedFile, selectedVideoPath]);
+
+  const handleCaptureHdFrame = useCallback(async (): Promise<void> => {
+    if (
+      captureBusy ||
+      provenanceBusy ||
+      !selectedFile ||
+      !selectedVideoPath ||
+      !canAnalyzeProvenance(selectedFile)
+    ) {
+      return;
+    }
+
+    setIsPlaying(false);
+    setCaptureBusy(true);
+    setProvenanceError(null);
+    setProvenanceMessage(null);
+
+    try {
+      const capture = await captureHdFrame({
+        videoPath: selectedVideoPath,
+        time: currentTime,
+      });
+
+      setProvenanceMessage(
+        `Captured ${capture.fileName} at ${capture.timecode} (${capture.width}x${capture.height}).`,
+      );
+      await revealProvenancePathInFinder(capture.outputPath).catch(() => undefined);
+    } catch (error) {
+      setProvenanceError(getErrorMessage(error, 'Failed to capture a high-definition frame.'));
+    } finally {
+      setCaptureBusy(false);
+    }
+  }, [captureBusy, currentTime, provenanceBusy, selectedFile, selectedVideoPath]);
 
   const handleUpdateProvenanceShot = useCallback(
     async (shot: ShotRecord): Promise<void> => {
@@ -351,6 +392,12 @@ export default function App(): JSX.Element {
         return;
       }
 
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        void handleCaptureHdFrame();
+        return;
+      }
+
       if (event.metaKey && event.key.toLowerCase() === 'o') {
         event.preventDefault();
         handleNativeImport();
@@ -391,6 +438,7 @@ export default function App(): JSX.Element {
   }, [
     duration,
     handleAnalyzeProvenance,
+    handleCaptureHdFrame,
     removeSelectedFile,
     selectedFile?.fps,
     toggleSettings,
@@ -570,11 +618,17 @@ export default function App(): JSX.Element {
               selectedShotId={selectedShotId}
               collapsed={rightCollapsed}
               busy={provenanceBusy}
+              captureBusy={captureBusy}
+              captureDisabled={
+                captureBusy || provenanceBusy || !selectedFile || !canAnalyzeProvenance(selectedFile)
+              }
+              captureHotkeyHint={captureHotkeyHint}
               error={provenanceError}
               message={provenanceMessage}
               sensitivity={sceneSensitivity}
               onToggleCollapsed={() => setRightCollapsed((value) => !value)}
               onAnalyze={handleAnalyzeProvenance}
+              onCaptureHdFrame={handleCaptureHdFrame}
               onSensitivityChange={setSceneSensitivity}
               onSelectShot={handleSelectProvenanceShot}
               onSeek={setCurrentTime}
