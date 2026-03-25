@@ -367,7 +367,7 @@ fn capture_hd_frame_blocking(request: CaptureHdFrameRequest) -> Result<ManualCap
             "-i",
             &resolved_video_path_string,
             "-ss",
-            &format!("{:.3}", capture_time),
+            &format!("{:.6}", capture_time),
             "-frames:v",
             "1",
             "-c:v",
@@ -591,7 +591,7 @@ fn unique_output_path(output_dir: &Path, base_name: &str) -> PathBuf {
 fn clamp_capture_time(time: f64, duration: f64) -> f64 {
     let safe_time = time.max(0.0);
     if duration > 0.0 {
-        safe_time.min((duration - 0.001).max(0.0))
+        safe_time.min(duration)
     } else {
         safe_time
     }
@@ -604,11 +604,27 @@ fn format_timecode(total_seconds: f64, fps: f64) -> String {
     } else {
         24.0
     };
-    let whole_seconds = safe_seconds.floor();
-    let hours = (whole_seconds / 3600.0).floor() as u64;
-    let minutes = ((whole_seconds % 3600.0) / 60.0).floor() as u64;
-    let seconds = (whole_seconds % 60.0).floor() as u64;
-    let frames = ((safe_seconds - whole_seconds) * safe_fps).floor() as u64;
+    let whole_seconds = safe_seconds.floor() as u64;
+    let mut hours = whole_seconds / 3600;
+    let mut minutes = (whole_seconds % 3600) / 60;
+    let mut seconds = whole_seconds % 60;
+    let mut frames = (((safe_seconds - whole_seconds as f64) * safe_fps) + 1e-6).floor() as u64;
+    let frame_slots = safe_fps.ceil().max(1.0) as u64;
+
+    if frames >= frame_slots {
+        frames = 0;
+        seconds += 1;
+
+        if seconds >= 60 {
+            seconds = 0;
+            minutes += 1;
+
+            if minutes >= 60 {
+                minutes = 0;
+                hours += 1;
+            }
+        }
+    }
 
     format!("{:02}:{:02}:{:02}:{:02}", hours, minutes, seconds, frames)
 }
@@ -701,6 +717,13 @@ mod tests {
         assert!(capture.file_name.contains("shot-001"));
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn format_timecode_keeps_frame_boundaries_stable() {
+        assert_eq!(format_timecode(1.0 / 24.0, 24.0), "00:00:00:01");
+        assert_eq!(format_timecode(0.999_999_99, 24.0), "00:00:01:00");
+        assert_eq!(format_timecode(59.999_999_99, 24.0), "00:01:00:00");
     }
 
     #[test]

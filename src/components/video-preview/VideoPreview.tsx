@@ -1,4 +1,6 @@
 import {
+  ChevronLeft,
+  ChevronRight,
   Maximize2,
   Pause,
   PictureInPicture2,
@@ -8,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef } from 'react';
 import { formatDuration, formatResolution, formatSmpte } from '../../lib/format';
+import { alignTimeToVideo, getFrameDuration } from '../../lib/video-time';
 import type { ProjectFile } from '../../types/models';
 
 interface VideoPreviewProps {
@@ -45,6 +48,10 @@ export function VideoPreview({
 }: VideoPreviewProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const fps = file?.fps ?? 24;
+  const scrubberMax = duration || file?.duration || 1;
+  const frameDuration = getFrameDuration(fps);
+  const scrubberTime = alignTimeToVideo(currentTime, fps, scrubberMax);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -70,7 +77,7 @@ export function VideoPreview({
       return;
     }
 
-    if (!Number.isFinite(video.currentTime) || Math.abs(video.currentTime - currentTime) > 0.25) {
+    if (!Number.isFinite(video.currentTime) || Math.abs(video.currentTime - currentTime) > 0.001) {
       video.currentTime = currentTime;
     }
   }, [currentTime]);
@@ -93,7 +100,6 @@ export function VideoPreview({
     }
   }, [file?.sourceUrl, isPlaying, onPlayingChange]);
 
-  const scrubberMax = duration || file?.duration || 1;
   const badgeText = useMemo(() => {
     if (!file) {
       return 'Drop a file to preview';
@@ -103,7 +109,7 @@ export function VideoPreview({
   }, [file]);
 
   const heroSubtitle = file
-    ? `${formatDuration(scrubberMax)} total • ${file.fps.toFixed(2)} fps`
+    ? `${formatDuration(scrubberMax)} total • ${fps.toFixed(2)} fps`
     : 'Drop a clip to start inspecting picture, audio, and metadata.';
 
   return (
@@ -117,7 +123,7 @@ export function VideoPreview({
         <div className="hero-preview-meta">
           <span className="info-pill">{badgeText}</span>
           <span className="info-pill info-pill-muted">
-            {formatSmpte(currentTime, file?.fps ?? 24)}
+            {formatSmpte(scrubberTime, fps)}
           </span>
         </div>
       </div>
@@ -129,7 +135,15 @@ export function VideoPreview({
             className="preview-video"
             playsInline
             onClick={onTogglePlay}
-            onTimeUpdate={(event) => onTimeChange(event.currentTarget.currentTime)}
+            onTimeUpdate={(event) => {
+              const { currentTime: nextTime, paused, seeking } = event.currentTarget;
+              if (paused || seeking) {
+                onTimeChange(alignTimeToVideo(nextTime, fps, scrubberMax));
+                return;
+              }
+
+              onTimeChange(nextTime);
+            }}
             onLoadedMetadata={(event) => onDurationChange(event.currentTarget.duration)}
             onPlay={() => onPlayingChange(true)}
             onPause={() => onPlayingChange(false)}
@@ -167,11 +181,25 @@ export function VideoPreview({
           <button className="transport-button" type="button" onClick={() => onJump(-5)}>
             -5s
           </button>
-          <button className="transport-button" type="button" onClick={() => onStepFrame(-1)}>
-            ←
+          <button
+            className="transport-button transport-button-frame"
+            type="button"
+            onClick={() => onStepFrame(-1)}
+            aria-label="Step backward one frame"
+            title="Step backward one frame"
+          >
+            <ChevronLeft size={15} />
+            1f
           </button>
-          <button className="transport-button" type="button" onClick={() => onStepFrame(1)}>
-            →
+          <button
+            className="transport-button transport-button-frame"
+            type="button"
+            onClick={() => onStepFrame(1)}
+            aria-label="Step forward one frame"
+            title="Step forward one frame"
+          >
+            1f
+            <ChevronRight size={15} />
           </button>
           <button className="transport-button" type="button" onClick={() => onJump(5)}>
             +5s
@@ -182,13 +210,16 @@ export function VideoPreview({
               type="range"
               min={0}
               max={scrubberMax}
-              step={0.01}
-              value={Math.min(currentTime, scrubberMax)}
-              onChange={(event) => onTimeChange(Number(event.target.value))}
+              step={frameDuration}
+              value={scrubberTime}
+              onChange={(event) => {
+                onPlayingChange(false);
+                onTimeChange(alignTimeToVideo(Number(event.target.value), fps, scrubberMax));
+              }}
             />
           </div>
           <span className="transport-time">
-            {formatSmpte(currentTime, file?.fps ?? 24)} / {formatSmpte(scrubberMax, file?.fps ?? 24)}
+            {formatSmpte(scrubberTime, fps)} / {formatSmpte(scrubberMax, fps)}
           </span>
         </div>
 

@@ -26,6 +26,11 @@ import {
   revealPathInFinder as revealProvenancePathInFinder,
 } from './lib/provenance';
 import type { ExportProgressEvent } from './lib/export';
+import {
+  alignTimeToVideo,
+  stepTimeByFrames,
+  stepTimeBySeconds,
+} from './lib/video-time';
 import { useAppStore, useSelectedFile } from './stores/appStore';
 
 import type {
@@ -141,6 +146,8 @@ export default function App(): JSX.Element {
   const selectedVideoPath = getProvenanceVideoPath(selectedFile);
   const provenanceHotkeyHint = isApplePlatform() ? '⌘⇧A' : 'Ctrl+Shift+A';
   const captureHotkeyHint = isApplePlatform() ? '⌘⇧S' : 'Ctrl+Shift+S';
+  const selectedFps = selectedFile?.fps ?? 24;
+  const scrubberMax = duration || selectedFile?.duration || 1;
 
   useEffect(() => {
     setDuration(selectedFile?.duration ?? 0);
@@ -313,7 +320,9 @@ export default function App(): JSX.Element {
       return;
     }
 
+    const captureTime = alignTimeToVideo(currentTime, selectedFps, scrubberMax);
     setIsPlaying(false);
+    setCurrentTime(captureTime);
     setCaptureBusy(true);
     setProvenanceError(null);
     setProvenanceMessage(null);
@@ -321,7 +330,7 @@ export default function App(): JSX.Element {
     try {
       const nextManualCaptureLog = await captureHdFrame({
         videoPath: selectedVideoPath,
-        time: currentTime,
+        time: captureTime,
       });
 
       const capture = nextManualCaptureLog.captures[nextManualCaptureLog.captures.length - 1];
@@ -340,7 +349,7 @@ export default function App(): JSX.Element {
     } finally {
       setCaptureBusy(false);
     }
-  }, [captureBusy, currentTime, provenanceBusy, selectedFile, selectedVideoPath]);
+  }, [captureBusy, currentTime, provenanceBusy, scrubberMax, selectedFps, selectedFile, selectedVideoPath]);
 
   const handleCopyManualCaptureSheetRow = useCallback(
     async (capture: ManualCaptureRecord): Promise<void> => {
@@ -449,6 +458,30 @@ export default function App(): JSX.Element {
     setSelectedShotId(shotId);
   }, []);
 
+  const handleSeekTime = useCallback(
+    (time: number): void => {
+      setIsPlaying(false);
+      setCurrentTime(alignTimeToVideo(time, selectedFps, scrubberMax));
+    },
+    [scrubberMax, selectedFps],
+  );
+
+  const handleStepFrame = useCallback(
+    (direction: -1 | 1): void => {
+      setIsPlaying(false);
+      setCurrentTime((value) => stepTimeByFrames(value, direction, selectedFps, scrubberMax));
+    },
+    [scrubberMax, selectedFps],
+  );
+
+  const handleJumpSeconds = useCallback(
+    (seconds: number): void => {
+      setIsPlaying(false);
+      setCurrentTime((value) => stepTimeBySeconds(value, seconds, selectedFps, scrubberMax));
+    },
+    [scrubberMax, selectedFps],
+  );
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -491,31 +524,38 @@ export default function App(): JSX.Element {
       if (event.key === ' ') {
         event.preventDefault();
         setIsPlaying((value) => !value);
+        return;
       }
 
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        setCurrentTime((value) =>
-          Math.max(0, value - (event.shiftKey ? 5 : 1 / (selectedFile?.fps ?? 24))),
-        );
+        if (event.shiftKey) {
+          handleJumpSeconds(-5);
+        } else {
+          handleStepFrame(-1);
+        }
+        return;
       }
 
       if (event.key === 'ArrowRight') {
         event.preventDefault();
-        setCurrentTime((value) =>
-          Math.min(duration, value + (event.shiftKey ? 5 : 1 / (selectedFile?.fps ?? 24))),
-        );
+        if (event.shiftKey) {
+          handleJumpSeconds(5);
+        } else {
+          handleStepFrame(1);
+        }
+        return;
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
-    duration,
     handleAnalyzeProvenance,
     handleCaptureHdFrame,
+    handleJumpSeconds,
+    handleStepFrame,
     removeSelectedFile,
-    selectedFile?.fps,
     toggleSettings,
     handleNativeImport,
   ]);
@@ -651,22 +691,8 @@ export default function App(): JSX.Element {
               onDurationChange={setDuration}
               onPlayingChange={setIsPlaying}
               onTogglePlay={() => setIsPlaying((value) => !value)}
-              onStepFrame={(direction) =>
-                setCurrentTime((value) =>
-                  Math.max(
-                    0,
-                    Math.min(
-                      duration || selectedFile?.duration || 1,
-                      value + direction / (selectedFile?.fps ?? 24),
-                    ),
-                  ),
-                )
-              }
-              onJump={(seconds) =>
-                setCurrentTime((value) =>
-                  Math.max(0, Math.min(duration || selectedFile?.duration || 1, value + seconds)),
-                )
-              }
+              onStepFrame={handleStepFrame}
+              onJump={handleJumpSeconds}
               onVolumeChange={(nextVolume) => {
                 setMuted(nextVolume === 0);
                 setVolume(nextVolume);
@@ -707,7 +733,7 @@ export default function App(): JSX.Element {
               onCaptureHdFrame={handleCaptureHdFrame}
               onSensitivityChange={setSceneSensitivity}
               onSelectShot={handleSelectProvenanceShot}
-              onSeek={setCurrentTime}
+              onSeek={handleSeekTime}
               onUpdateShot={handleUpdateProvenanceShot}
               onDeleteShot={handleDeleteProvenanceShot}
               onCopySheetRow={handleCopyManualCaptureSheetRow}

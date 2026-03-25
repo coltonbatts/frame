@@ -309,6 +309,14 @@ button {
   height: 32px;
 }
 
+.transport-button-frame {
+  width: auto;
+  min-width: 60px;
+  padding: 0 10px;
+  gap: 5px;
+  font-size: 12px;
+}
+
 .window-control-danger:hover {
   border-color: rgba(239, 68, 68, 0.5);
   background: rgba(127, 29, 29, 0.7);

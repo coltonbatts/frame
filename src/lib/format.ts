@@ -10,11 +10,29 @@ export function formatDuration(totalSeconds: number): string {
 }
 
 export function formatSmpte(totalSeconds: number, fps = 24): string {
-  const safeSeconds = Math.max(0, totalSeconds);
-  const hours = Math.floor(safeSeconds / 3600);
-  const minutes = Math.floor((safeSeconds % 3600) / 60);
-  const seconds = Math.floor(safeSeconds % 60);
-  const frames = Math.floor((safeSeconds - Math.floor(safeSeconds)) * fps);
+  const safeSeconds = Number.isFinite(totalSeconds) ? Math.max(0, totalSeconds) : 0;
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 24;
+  const wholeSeconds = Math.floor(safeSeconds);
+  let hours = Math.floor(wholeSeconds / 3600);
+  let minutes = Math.floor((wholeSeconds % 3600) / 60);
+  let seconds = wholeSeconds % 60;
+  let frames = Math.floor(((safeSeconds - wholeSeconds) * safeFps) + 1e-6);
+  const frameSlots = Math.max(1, Math.ceil(safeFps));
+
+  if (frames >= frameSlots) {
+    frames = 0;
+    seconds += 1;
+
+    if (seconds >= 60) {
+      seconds = 0;
+      minutes += 1;
+
+      if (minutes >= 60) {
+        minutes = 0;
+        hours += 1;
+      }
+    }
+  }
 
   return [hours, minutes, seconds, frames]
     .map((value) => value.toString().padStart(2, '0'))
